@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'dart:ui' show FontFeature;
 
 import 'domain/model/line_syntax.dart';
 import 'domain/service/line_syntax_parser.dart';
@@ -195,6 +196,16 @@ class _MarkdownTextEditingController extends TextEditingController {
   }
 
   @override
+  set value(TextEditingValue newValue) {
+    final oldValue = super.value;
+    final adjustedValue = _applyListInputRules(
+      oldValue: oldValue,
+      newValue: newValue,
+    );
+    super.value = adjustedValue;
+  }
+
+  @override
   TextSpan buildTextSpan({
     required BuildContext context,
     TextStyle? style,
@@ -223,14 +234,19 @@ class _MarkdownTextEditingController extends TextEditingController {
       final lineEnd = offset;
       final lineText = text.substring(lineStart, lineEnd);
       final syntax = _config.lineSyntaxParser.parse(lineText);
-      final lineStyle = _config.lineStyleResolver.resolve(
+      final renderedLineText = _renderLineText(lineText, syntax);
+      final resolvedLineStyle = _config.lineStyleResolver.resolve(
         paragraphStyle: baseStyle,
         syntax: syntax,
         headingStyles: _config.headingStyles,
       );
+      final lineStyle = _lineStyleForSyntax(
+        syntax: syntax,
+        lineStyle: resolvedLineStyle,
+      );
       children.add(
         _buildComposingTextSpan(
-          text: lineText,
+          text: renderedLineText,
           style: lineStyle,
           segmentStart: lineStart,
           segmentEnd: lineEnd,
@@ -253,6 +269,216 @@ class _MarkdownTextEditingController extends TextEditingController {
     }
 
     return TextSpan(style: baseStyle, children: children);
+  }
+
+  TextStyle _lineStyleForSyntax({
+    required LineSyntax syntax,
+    required TextStyle lineStyle,
+  }) {
+    final list = syntax.list;
+    if (list == null || list.type != ListType.ordered) {
+      return lineStyle;
+    }
+
+    final features = <FontFeature>[
+      ...?lineStyle.fontFeatures,
+      const FontFeature.tabularFigures(),
+    ];
+    return lineStyle.copyWith(fontFeatures: features);
+  }
+
+  TextEditingValue _applyListInputRules({
+    required TextEditingValue oldValue,
+    required TextEditingValue newValue,
+  }) {
+    if (!oldValue.selection.isValid ||
+        !newValue.selection.isValid ||
+        !oldValue.selection.isCollapsed ||
+        !newValue.selection.isCollapsed) {
+      return newValue;
+    }
+
+    final enterAdjusted = _applyEnterListRule(
+      oldValue: oldValue,
+      newValue: newValue,
+    );
+    if (enterAdjusted != null) {
+      return enterAdjusted;
+    }
+
+    final backspaceAdjusted = _applyBackspaceListRule(
+      oldValue: oldValue,
+      newValue: newValue,
+    );
+    if (backspaceAdjusted != null) {
+      return backspaceAdjusted;
+    }
+
+    return newValue;
+  }
+
+  TextEditingValue? _applyEnterListRule({
+    required TextEditingValue oldValue,
+    required TextEditingValue newValue,
+  }) {
+    if (newValue.text.length != oldValue.text.length + 1) {
+      return null;
+    }
+    final insertionOffset = oldValue.selection.extentOffset;
+    if (insertionOffset < 0 || insertionOffset > oldValue.text.length) {
+      return null;
+    }
+    if (newValue.selection.extentOffset != insertionOffset + 1) {
+      return null;
+    }
+    if (newValue.text.substring(0, insertionOffset) !=
+        oldValue.text.substring(0, insertionOffset)) {
+      return null;
+    }
+    if (newValue.text.substring(insertionOffset, insertionOffset + 1) != '\n') {
+      return null;
+    }
+    if (newValue.text.substring(insertionOffset + 1) !=
+        oldValue.text.substring(insertionOffset)) {
+      return null;
+    }
+
+    final lineRange = _lineRangeForOffset(oldValue.text, insertionOffset);
+    final lineText = oldValue.text.substring(lineRange.start, lineRange.end);
+    final list = _config.lineSyntaxParser.parse(lineText).list;
+    if (list == null) {
+      return null;
+    }
+
+    final listPrefix = _listPrefix(list);
+    final contentText = lineText.length > listPrefix.length
+        ? lineText.substring(listPrefix.length)
+        : '';
+
+    // Enter on an empty list item exits the list.
+    if (contentText.trim().isEmpty) {
+      final adjustedText = newValue.text.replaceRange(
+        lineRange.start,
+        lineRange.end,
+        '',
+      );
+      final removedLength = lineRange.end - lineRange.start;
+      final adjustedOffset = newValue.selection.extentOffset - removedLength;
+      return newValue.copyWith(
+        text: adjustedText,
+        selection: TextSelection.collapsed(offset: adjustedOffset),
+        composing: TextRange.empty,
+      );
+    }
+
+    final nextPrefix = _nextListPrefix(list);
+    final adjustedText = newValue.text.replaceRange(
+      insertionOffset + 1,
+      insertionOffset + 1,
+      nextPrefix,
+    );
+    return newValue.copyWith(
+      text: adjustedText,
+      selection: TextSelection.collapsed(
+        offset: newValue.selection.extentOffset + nextPrefix.length,
+      ),
+      composing: TextRange.empty,
+    );
+  }
+
+  TextEditingValue? _applyBackspaceListRule({
+    required TextEditingValue oldValue,
+    required TextEditingValue newValue,
+  }) {
+    if (newValue.text.length + 1 != oldValue.text.length) {
+      return null;
+    }
+    final oldOffset = oldValue.selection.extentOffset;
+    if (oldOffset <= 0) {
+      return null;
+    }
+    if (newValue.selection.extentOffset != oldOffset - 1) {
+      return null;
+    }
+    if (oldValue.text.substring(0, oldOffset - 1) !=
+        newValue.text.substring(0, oldOffset - 1)) {
+      return null;
+    }
+    if (oldValue.text.substring(oldOffset) !=
+        newValue.text.substring(oldOffset - 1)) {
+      return null;
+    }
+
+    final lineRange = _lineRangeForOffset(oldValue.text, oldOffset);
+    if (oldOffset != lineRange.end) {
+      return null;
+    }
+    final lineText = oldValue.text.substring(lineRange.start, lineRange.end);
+    final list = _config.lineSyntaxParser.parse(lineText).list;
+    if (list == null) {
+      return null;
+    }
+
+    final listPrefix = _listPrefix(list);
+    if (lineText != listPrefix) {
+      return null;
+    }
+
+    final adjustedText = oldValue.text.replaceRange(
+      lineRange.start,
+      lineRange.end,
+      '',
+    );
+    return oldValue.copyWith(
+      text: adjustedText,
+      selection: TextSelection.collapsed(offset: lineRange.start),
+      composing: TextRange.empty,
+    );
+  }
+
+  String _listPrefix(ListSyntax list) {
+    final indent = ' ' * list.indent;
+    switch (list.type) {
+      case ListType.unordered:
+        return '$indent${list.marker!} ';
+      case ListType.ordered:
+        return '$indent${list.number!}. ';
+    }
+  }
+
+  String _nextListPrefix(ListSyntax list) {
+    final indent = ' ' * list.indent;
+    switch (list.type) {
+      case ListType.unordered:
+        return '$indent${list.marker!} ';
+      case ListType.ordered:
+        return '$indent${list.number! + 1}. ';
+    }
+  }
+
+  ({int start, int end}) _lineRangeForOffset(String text, int offset) {
+    final lineStart = offset == 0
+        ? 0
+        : (text.lastIndexOf('\n', offset - 1) + 1);
+    final lineEnd = text.indexOf('\n', offset);
+    return (start: lineStart, end: lineEnd == -1 ? text.length : lineEnd);
+  }
+
+  String _renderLineText(String lineText, LineSyntax syntax) {
+    final list = syntax.list;
+    if (list == null) {
+      return lineText;
+    }
+    switch (list.type) {
+      case ListType.unordered:
+        final markerIndex = list.indent;
+        if (markerIndex < 0 || markerIndex >= lineText.length) {
+          return lineText;
+        }
+        return lineText.replaceRange(markerIndex, markerIndex + 1, '•');
+      case ListType.ordered:
+        return lineText;
+    }
   }
 
   TextSpan _buildComposingTextSpan({

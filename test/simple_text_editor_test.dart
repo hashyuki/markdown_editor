@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'dart:ui' show FontFeature;
 import 'package:flutter_test/flutter_test.dart';
 import 'package:markdown_editor/markdown_editor.dart';
 
@@ -317,6 +318,144 @@ void main() {
           .cursorHeight!;
 
       expect(reverseSelectionCursorHeight, lessThan(headingCursorHeight));
+    });
+
+    testWidgets('renders unordered list markers as bullets', (tester) async {
+      final controller = TextEditingController(
+        text: '* one\n  - two\n+ three\n1. four\n1\\. escaped',
+      );
+      addTearDown(controller.dispose);
+
+      await tester.pumpWidget(
+        MaterialApp(
+          home: Scaffold(body: SimpleTextEditor(controller: controller)),
+        ),
+      );
+
+      final editable = tester.widget<EditableText>(find.byType(EditableText));
+      final context = tester.element(find.byType(EditableText));
+      final textSpan = editable.controller.buildTextSpan(
+        context: context,
+        style: editable.style,
+        withComposing: true,
+      );
+      final leafSpans = _collectLeafSpans(textSpan);
+      final leafTexts = leafSpans.map((span) => span.text);
+
+      expect(leafTexts, contains('• one'));
+      expect(leafTexts, contains('  • two'));
+      expect(leafTexts, contains('• three'));
+      expect(leafTexts, contains('1. four'));
+      expect(leafTexts, contains(r'1\. escaped'));
+      final orderedSpan = leafSpans.singleWhere(
+        (span) => span.text == '1. four',
+      );
+      expect(
+        orderedSpan.style?.fontFeatures,
+        contains(const FontFeature.tabularFigures()),
+      );
+    });
+
+    testWidgets('pressing enter continues unordered list', (tester) async {
+      final controller = TextEditingController(text: '- item');
+      addTearDown(controller.dispose);
+
+      await tester.pumpWidget(
+        MaterialApp(
+          home: Scaffold(body: SimpleTextEditor(controller: controller)),
+        ),
+      );
+
+      final editable = tester.widget<EditableText>(find.byType(EditableText));
+      editable.controller.value = const TextEditingValue(
+        text: '- item',
+        selection: TextSelection.collapsed(offset: 6),
+      );
+      editable.controller.value = const TextEditingValue(
+        text: '- item\n',
+        selection: TextSelection.collapsed(offset: 7),
+      );
+      await tester.pump();
+
+      expect(editable.controller.text, '- item\n- ');
+      expect(editable.controller.selection.baseOffset, 9);
+    });
+
+    testWidgets('pressing enter on empty list item exits list', (tester) async {
+      final controller = TextEditingController(text: '- item\n- ');
+      addTearDown(controller.dispose);
+
+      await tester.pumpWidget(
+        MaterialApp(
+          home: Scaffold(body: SimpleTextEditor(controller: controller)),
+        ),
+      );
+
+      final editable = tester.widget<EditableText>(find.byType(EditableText));
+      editable.controller.value = const TextEditingValue(
+        text: '- item\n- ',
+        selection: TextSelection.collapsed(offset: 9),
+      );
+      editable.controller.value = const TextEditingValue(
+        text: '- item\n- \n',
+        selection: TextSelection.collapsed(offset: 10),
+      );
+      await tester.pump();
+
+      expect(editable.controller.text, '- item\n\n');
+      expect(editable.controller.selection.baseOffset, 8);
+    });
+
+    testWidgets('backspace on empty list item exits list', (tester) async {
+      final controller = TextEditingController(text: '- ');
+      addTearDown(controller.dispose);
+
+      await tester.pumpWidget(
+        MaterialApp(
+          home: Scaffold(body: SimpleTextEditor(controller: controller)),
+        ),
+      );
+
+      final editable = tester.widget<EditableText>(find.byType(EditableText));
+      editable.controller.value = const TextEditingValue(
+        text: '- ',
+        selection: TextSelection.collapsed(offset: 2),
+      );
+      editable.controller.value = const TextEditingValue(
+        text: '-',
+        selection: TextSelection.collapsed(offset: 1),
+      );
+      await tester.pump();
+
+      expect(editable.controller.text, '');
+      expect(editable.controller.selection.baseOffset, 0);
+    });
+
+    testWidgets('pressing enter continues ordered list with next number', (
+      tester,
+    ) async {
+      final controller = TextEditingController(text: '1. item');
+      addTearDown(controller.dispose);
+
+      await tester.pumpWidget(
+        MaterialApp(
+          home: Scaffold(body: SimpleTextEditor(controller: controller)),
+        ),
+      );
+
+      final editable = tester.widget<EditableText>(find.byType(EditableText));
+      editable.controller.value = const TextEditingValue(
+        text: '1. item',
+        selection: TextSelection.collapsed(offset: 7),
+      );
+      editable.controller.value = const TextEditingValue(
+        text: '1. item\n',
+        selection: TextSelection.collapsed(offset: 8),
+      );
+      await tester.pump();
+
+      expect(editable.controller.text, '1. item\n2. ');
+      expect(editable.controller.selection.baseOffset, 11);
     });
 
     testWidgets('allows interactive text selection', (tester) async {
