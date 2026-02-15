@@ -1,27 +1,35 @@
 import 'package:flutter/material.dart';
 
-import 'domain/model/editor_content.dart';
-import 'domain/model/editor_line.dart';
+import 'domain/model/line_syntax.dart';
+import 'domain/service/line_syntax_parser.dart';
+import 'presentation/controller/external_controller_bridge.dart';
+import 'presentation/controller/selection_heading_tracker.dart';
+import 'presentation/controller/simple_text_editor_config_signature.dart';
+import 'presentation/style/line_style_resolver.dart';
 
 class SimpleTextEditorConfig {
   const SimpleTextEditorConfig({
     this.paragraphStyle = _defaultParagraphStyle,
     this.headingStyles = _defaultHeadingStyles,
+    this.lineSyntaxParser = const HeadingLineSyntaxParser(),
+    this.lineStyleResolver = const HeadingLineStyleResolver(),
   });
 
   static const TextStyle _defaultParagraphStyle = TextStyle(height: 1);
 
   static const Map<int, TextStyle> _defaultHeadingStyles = <int, TextStyle>{
-    1: TextStyle(fontSize: 32, fontWeight: FontWeight.w700, height: 1.5),
-    2: TextStyle(fontSize: 28, fontWeight: FontWeight.w700, height: 1.4),
-    3: TextStyle(fontSize: 24, fontWeight: FontWeight.w700, height: 1.3),
-    4: TextStyle(fontSize: 20, fontWeight: FontWeight.w700, height: 1.2),
-    5: TextStyle(fontSize: 18, fontWeight: FontWeight.w700, height: 1.1),
-    6: TextStyle(fontSize: 16, fontWeight: FontWeight.w700, height: 1),
+    1: TextStyle(fontSize: 26, fontWeight: FontWeight.w700, height: 1.5),
+    2: TextStyle(fontSize: 24, fontWeight: FontWeight.w700, height: 1.5),
+    3: TextStyle(fontSize: 22, fontWeight: FontWeight.w700, height: 1.5),
+    4: TextStyle(fontSize: 20, fontWeight: FontWeight.w700, height: 1.5),
+    5: TextStyle(fontSize: 18, fontWeight: FontWeight.w700, height: 1.5),
+    6: TextStyle(fontSize: 16, fontWeight: FontWeight.w700, height: 1.5),
   };
 
   final TextStyle? paragraphStyle;
   final Map<int, TextStyle> headingStyles;
+  final LineSyntaxParser lineSyntaxParser;
+  final LineStyleResolver lineStyleResolver;
 }
 
 /// A minimal plain-text editor that will be the foundation for markdown editing.
@@ -54,118 +62,82 @@ class SimpleTextEditor extends StatefulWidget {
 class _SimpleTextEditorState extends State<SimpleTextEditor> {
   late final _MarkdownTextEditingController _controller;
   late final FocusNode _focusNode;
-  late final bool _ownsController;
   late final bool _ownsFocusNode;
-  TextEditingController? _externalController;
-  int? _currentHeadingLevel;
+  late final ExternalControllerBridge _externalControllerBridge;
+  late final SelectionHeadingTracker _selectionHeadingTracker;
+  late SimpleTextEditorConfigSignature _appliedConfigSignature;
 
   @override
   void initState() {
     super.initState();
-    _ownsController = widget.controller == null;
-    _externalController = widget.controller;
     _controller = _MarkdownTextEditingController(
       text: widget.controller?.text ?? widget.initialText,
       config: widget.config,
     );
-    _externalController?.addListener(_syncFromExternalController);
-    _controller.addListener(_onInternalControllerChanged);
+    _externalControllerBridge = ExternalControllerBridge(
+      internalController: _controller,
+      externalController: widget.controller,
+    );
+    _selectionHeadingTracker = SelectionHeadingTracker(
+      controller: _controller,
+      parser: widget.config.lineSyntaxParser,
+    );
+    _appliedConfigSignature = SimpleTextEditorConfigSignature.fromValues(
+      paragraphStyle: widget.config.paragraphStyle,
+      headingStyles: widget.config.headingStyles,
+      lineSyntaxParser: widget.config.lineSyntaxParser,
+      lineStyleResolver: widget.config.lineStyleResolver,
+    );
     _ownsFocusNode = widget.focusNode == null;
     _focusNode = widget.focusNode ?? FocusNode();
-    _updateCursorHeadingLevel();
   }
 
   @override
   void didUpdateWidget(covariant SimpleTextEditor oldWidget) {
     super.didUpdateWidget(oldWidget);
     if (oldWidget.controller != widget.controller) {
-      oldWidget.controller?.removeListener(_syncFromExternalController);
-      _externalController = widget.controller;
-      _externalController?.addListener(_syncFromExternalController);
-      _syncFromExternalController();
+      _externalControllerBridge.updateExternalController(widget.controller);
     }
-    if (oldWidget.config != widget.config) {
-      _controller.updateConfig(widget.config);
-      _updateCursorHeadingLevel();
-    }
+    _applyConfigIfNeeded(widget.config);
   }
 
-  void _syncFromExternalController() {
-    final externalController = _externalController;
-    if (externalController == null) {
+  void _applyConfigIfNeeded(SimpleTextEditorConfig config) {
+    final nextSignature = SimpleTextEditorConfigSignature.fromValues(
+      paragraphStyle: config.paragraphStyle,
+      headingStyles: config.headingStyles,
+      lineSyntaxParser: config.lineSyntaxParser,
+      lineStyleResolver: config.lineStyleResolver,
+    );
+    if (_appliedConfigSignature == nextSignature) {
       return;
     }
-    if (_controller.value == externalController.value) {
-      return;
-    }
-    _controller.value = externalController.value;
+    _controller.updateConfig(config);
+    _selectionHeadingTracker.updateParser(config.lineSyntaxParser);
+    _appliedConfigSignature = nextSignature;
   }
 
-  void _syncToExternalController() {
-    final externalController = _externalController;
-    if (externalController == null) {
-      return;
-    }
-    if (externalController.value == _controller.value) {
-      return;
-    }
-    externalController.value = _controller.value;
+  TextStyle _paragraphStyleForContext(BuildContext context) {
+    final themeStyle =
+        Theme.of(context).textTheme.titleMedium ??
+        const TextStyle(fontSize: 16);
+    return themeStyle.merge(widget.config.paragraphStyle);
   }
 
-  void _onInternalControllerChanged() {
-    _syncToExternalController();
-    _updateCursorHeadingLevel();
-  }
-
-  void _updateCursorHeadingLevel() {
-    final headingLevel = _headingLevelForSelection(_controller.value);
-    if (_currentHeadingLevel == headingLevel) {
-      return;
-    }
-    if (!mounted) {
-      _currentHeadingLevel = headingLevel;
-      return;
-    }
-    setState(() {
-      _currentHeadingLevel = headingLevel;
-    });
-  }
-
-  int? _headingLevelForSelection(TextEditingValue value) {
-    final selection = value.selection;
-    final text = value.text;
-    if (text.isEmpty || !selection.isValid) {
-      return null;
-    }
-    final offset = selection.baseOffset.clamp(0, text.length);
-    final lineStart = offset == 0
-        ? 0
-        : (text.lastIndexOf('\n', offset - 1) + 1);
-    final lineEnd = text.indexOf('\n', offset);
-    final safeLineEnd = lineEnd == -1 ? text.length : lineEnd;
-    final lineText = text.substring(lineStart, safeLineEnd);
-    return EditorLine(lineText).headingLevel;
-  }
-
-  double _cursorHeightForCurrentLine(BuildContext context) {
-    final paragraphStyle = DefaultTextStyle.of(
-      context,
-    ).style.merge(widget.config.paragraphStyle);
-    final lineStyle = _currentHeadingLevel == null
-        ? paragraphStyle
-        : paragraphStyle.merge(
-            widget.config.headingStyles[_currentHeadingLevel],
-          );
+  double _cursorHeightForHeading(BuildContext context, int? headingLevel) {
+    final paragraphStyle = _paragraphStyleForContext(context);
+    final lineStyle = widget.config.lineStyleResolver.resolve(
+      paragraphStyle: paragraphStyle,
+      syntax: LineSyntax(headingLevel: headingLevel),
+      headingStyles: widget.config.headingStyles,
+    );
     return lineStyle.fontSize ?? paragraphStyle.fontSize ?? 14;
   }
 
   @override
   void dispose() {
-    _externalController?.removeListener(_syncFromExternalController);
-    _controller.removeListener(_onInternalControllerChanged);
-    if (_ownsController) {
-      _controller.dispose();
-    }
+    _externalControllerBridge.dispose();
+    _selectionHeadingTracker.dispose();
+    _controller.dispose();
     if (_ownsFocusNode) {
       _focusNode.dispose();
     }
@@ -174,6 +146,8 @@ class _SimpleTextEditorState extends State<SimpleTextEditor> {
 
   @override
   Widget build(BuildContext context) {
+    final paragraphStyle = _paragraphStyleForContext(context);
+
     return DecoratedBox(
       decoration: BoxDecoration(
         border: Border.all(color: Theme.of(context).colorScheme.outline),
@@ -181,20 +155,26 @@ class _SimpleTextEditorState extends State<SimpleTextEditor> {
       ),
       child: Padding(
         padding: widget.padding,
-        child: TextField(
-          key: const Key('simple_text_editor_input'),
-          controller: _controller,
-          focusNode: _focusNode,
-          strutStyle: StrutStyle.disabled,
-          cursorHeight: _cursorHeightForCurrentLine(context),
-          autofocus: widget.autofocus,
-          keyboardType: TextInputType.multiline,
-          textInputAction: TextInputAction.newline,
-          minLines: null,
-          maxLines: null,
-          expands: true,
-          decoration: InputDecoration.collapsed(hintText: widget.hintText),
-          onChanged: widget.onChanged,
+        child: ValueListenableBuilder<int?>(
+          valueListenable: _selectionHeadingTracker,
+          builder: (context, headingLevel, _) {
+            return TextField(
+              key: const Key('simple_text_editor_input'),
+              controller: _controller,
+              focusNode: _focusNode,
+              style: paragraphStyle,
+              strutStyle: StrutStyle.disabled,
+              cursorHeight: _cursorHeightForHeading(context, headingLevel),
+              autofocus: widget.autofocus,
+              keyboardType: TextInputType.multiline,
+              textInputAction: TextInputAction.newline,
+              minLines: null,
+              maxLines: null,
+              expands: true,
+              decoration: InputDecoration.collapsed(hintText: widget.hintText),
+              onChanged: widget.onChanged,
+            );
+          },
         ),
       ),
     );
@@ -220,24 +200,107 @@ class _MarkdownTextEditingController extends TextEditingController {
     TextStyle? style,
     required bool withComposing,
   }) {
+    assert(
+      !value.composing.isValid || !withComposing || value.isComposingRangeValid,
+      'New TextEditingValue $value has an invalid non-empty composing range '
+      '${value.composing}. It is recommended to use a valid composing range, '
+      'even for readonly text fields.',
+    );
     final baseStyle = (style ?? DefaultTextStyle.of(context).style).merge(
       _config.paragraphStyle,
     );
-    final lines = EditorContent(text).lines;
     final children = <InlineSpan>[];
+    final composingRange = withComposing && value.isComposingRangeValid
+        ? value.composing
+        : null;
+    var lineStart = 0;
+    for (var offset = 0; offset <= text.length; offset++) {
+      final isLineEnd = offset == text.length || text.codeUnitAt(offset) == 10;
+      if (!isLineEnd) {
+        continue;
+      }
 
-    for (var index = 0; index < lines.length; index++) {
-      final line = lines[index];
-      final headingLevel = line.headingLevel;
-      final lineStyle = headingLevel == null
-          ? baseStyle
-          : baseStyle.merge(_config.headingStyles[headingLevel]);
-      children.add(TextSpan(text: line.value, style: lineStyle));
-      if (index < lines.length - 1) {
-        children.add(TextSpan(text: '\n', style: baseStyle));
+      final lineEnd = offset;
+      final lineText = text.substring(lineStart, lineEnd);
+      final syntax = _config.lineSyntaxParser.parse(lineText);
+      final lineStyle = _config.lineStyleResolver.resolve(
+        paragraphStyle: baseStyle,
+        syntax: syntax,
+        headingStyles: _config.headingStyles,
+      );
+      children.add(
+        _buildComposingTextSpan(
+          text: lineText,
+          style: lineStyle,
+          segmentStart: lineStart,
+          segmentEnd: lineEnd,
+          composingRange: composingRange,
+        ),
+      );
+
+      if (offset < text.length) {
+        children.add(
+          _buildComposingTextSpan(
+            text: '\n',
+            style: baseStyle,
+            segmentStart: offset,
+            segmentEnd: offset + 1,
+            composingRange: composingRange,
+          ),
+        );
+        lineStart = offset + 1;
       }
     }
 
     return TextSpan(style: baseStyle, children: children);
+  }
+
+  TextSpan _buildComposingTextSpan({
+    required String text,
+    required TextStyle style,
+    required int segmentStart,
+    required int segmentEnd,
+    required TextRange? composingRange,
+  }) {
+    if (text.isEmpty || composingRange == null) {
+      return TextSpan(text: text, style: style);
+    }
+    final overlapStart = segmentStart > composingRange.start
+        ? segmentStart
+        : composingRange.start;
+    final overlapEnd = segmentEnd < composingRange.end
+        ? segmentEnd
+        : composingRange.end;
+    if (overlapStart >= overlapEnd) {
+      return TextSpan(text: text, style: style);
+    }
+
+    final localOverlapStart = overlapStart - segmentStart;
+    final localOverlapEnd = overlapEnd - segmentStart;
+    final mergedDecoration = TextDecoration.combine([
+      if (style.decoration != null) style.decoration!,
+      TextDecoration.underline,
+    ]);
+    final composingStyle = style.copyWith(decoration: mergedDecoration);
+    final children = <InlineSpan>[];
+
+    if (localOverlapStart > 0) {
+      children.add(
+        TextSpan(text: text.substring(0, localOverlapStart), style: style),
+      );
+    }
+    children.add(
+      TextSpan(
+        text: text.substring(localOverlapStart, localOverlapEnd),
+        style: composingStyle,
+      ),
+    );
+    if (localOverlapEnd < text.length) {
+      children.add(
+        TextSpan(text: text.substring(localOverlapEnd), style: style),
+      );
+    }
+
+    return TextSpan(style: style, children: children);
   }
 }
