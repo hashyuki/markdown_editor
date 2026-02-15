@@ -3,8 +3,8 @@ import 'package:markdown_editor/src/domain/model/line_syntax.dart';
 import 'package:markdown_editor/src/domain/service/line_syntax_parser.dart';
 
 void main() {
-  group('HeadingLineSyntaxParser list parsing', () {
-    const parser = HeadingLineSyntaxParser();
+  group('MarkdownLineSyntaxParser list parsing', () {
+    const parser = MarkdownLineSyntaxParser();
 
     test('parses unordered list with *, +, - when followed by a space', () {
       final star = parser.parse('* item');

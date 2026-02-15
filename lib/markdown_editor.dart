@@ -4,5 +4,6 @@ export 'src/domain/model/line_syntax.dart';
 export 'src/domain/service/line_syntax_parser.dart';
 export 'src/infrastructure/repository/in_memory_editor_repository.dart';
 export 'src/presentation/editor_view_model.dart';
+export 'src/presentation/style/line_text_renderer.dart';
 export 'src/presentation/style/line_style_resolver.dart';
 export 'src/simple_text_editor.dart';

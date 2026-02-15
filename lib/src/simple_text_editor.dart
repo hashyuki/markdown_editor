@@ -1,18 +1,20 @@
 import 'package:flutter/material.dart';
-import 'dart:ui' show FontFeature;
 
 import 'domain/model/line_syntax.dart';
+import 'domain/service/markdown_list_editing_service.dart';
 import 'domain/service/line_syntax_parser.dart';
 import 'presentation/controller/external_controller_bridge.dart';
 import 'presentation/controller/selection_heading_tracker.dart';
 import 'presentation/controller/simple_text_editor_config_signature.dart';
+import 'presentation/style/line_text_renderer.dart';
 import 'presentation/style/line_style_resolver.dart';
 
 class SimpleTextEditorConfig {
   const SimpleTextEditorConfig({
     this.paragraphStyle = _defaultParagraphStyle,
     this.headingStyles = _defaultHeadingStyles,
-    this.lineSyntaxParser = const HeadingLineSyntaxParser(),
+    this.lineSyntaxParser = const MarkdownLineSyntaxParser(),
+    this.lineTextRenderer = const MarkdownLineTextRenderer(),
     this.lineStyleResolver = const HeadingLineStyleResolver(),
   });
 
@@ -30,6 +32,7 @@ class SimpleTextEditorConfig {
   final TextStyle? paragraphStyle;
   final Map<int, TextStyle> headingStyles;
   final LineSyntaxParser lineSyntaxParser;
+  final LineTextRenderer lineTextRenderer;
   final LineStyleResolver lineStyleResolver;
 }
 
@@ -87,6 +90,7 @@ class _SimpleTextEditorState extends State<SimpleTextEditor> {
       paragraphStyle: widget.config.paragraphStyle,
       headingStyles: widget.config.headingStyles,
       lineSyntaxParser: widget.config.lineSyntaxParser,
+      lineTextRenderer: widget.config.lineTextRenderer,
       lineStyleResolver: widget.config.lineStyleResolver,
     );
     _ownsFocusNode = widget.focusNode == null;
@@ -107,6 +111,7 @@ class _SimpleTextEditorState extends State<SimpleTextEditor> {
       paragraphStyle: config.paragraphStyle,
       headingStyles: config.headingStyles,
       lineSyntaxParser: config.lineSyntaxParser,
+      lineTextRenderer: config.lineTextRenderer,
       lineStyleResolver: config.lineStyleResolver,
     );
     if (_appliedConfigSignature == nextSignature) {
@@ -186,22 +191,46 @@ class _MarkdownTextEditingController extends TextEditingController {
   _MarkdownTextEditingController({
     super.text,
     required SimpleTextEditorConfig config,
-  }) : _config = config;
+  }) : _config = config,
+       _listEditingService = MarkdownListEditingService(
+         parser: config.lineSyntaxParser,
+       );
 
   SimpleTextEditorConfig _config;
+  final MarkdownListEditingService _listEditingService;
 
   void updateConfig(SimpleTextEditorConfig config) {
     _config = config;
+    _listEditingService.updateParser(config.lineSyntaxParser);
     notifyListeners();
   }
 
   @override
   set value(TextEditingValue newValue) {
-    final oldValue = super.value;
-    final adjustedValue = _applyListInputRules(
-      oldValue: oldValue,
-      newValue: newValue,
+    final oldSnapshot = EditorTextSnapshot(
+      text: super.value.text,
+      baseOffset: super.value.selection.baseOffset,
+      extentOffset: super.value.selection.extentOffset,
     );
+    final newSnapshot = EditorTextSnapshot(
+      text: newValue.text,
+      baseOffset: newValue.selection.baseOffset,
+      extentOffset: newValue.selection.extentOffset,
+    );
+    final adjustedSnapshot = _listEditingService.applyRules(
+      oldValue: oldSnapshot,
+      newValue: newSnapshot,
+    );
+    final adjustedValue = adjustedSnapshot == newSnapshot
+        ? newValue
+        : TextEditingValue(
+            text: adjustedSnapshot.text,
+            selection: TextSelection(
+              baseOffset: adjustedSnapshot.baseOffset,
+              extentOffset: adjustedSnapshot.extentOffset,
+            ),
+            composing: TextRange.empty,
+          );
     super.value = adjustedValue;
   }
 
@@ -234,20 +263,19 @@ class _MarkdownTextEditingController extends TextEditingController {
       final lineEnd = offset;
       final lineText = text.substring(lineStart, lineEnd);
       final syntax = _config.lineSyntaxParser.parse(lineText);
-      final renderedLineText = _renderLineText(lineText, syntax);
+      final renderedLineText = _config.lineTextRenderer.render(
+        lineText: lineText,
+        syntax: syntax,
+      );
       final resolvedLineStyle = _config.lineStyleResolver.resolve(
         paragraphStyle: baseStyle,
         syntax: syntax,
         headingStyles: _config.headingStyles,
       );
-      final lineStyle = _lineStyleForSyntax(
-        syntax: syntax,
-        lineStyle: resolvedLineStyle,
-      );
       children.add(
         _buildComposingTextSpan(
           text: renderedLineText,
-          style: lineStyle,
+          style: resolvedLineStyle,
           segmentStart: lineStart,
           segmentEnd: lineEnd,
           composingRange: composingRange,
@@ -269,216 +297,6 @@ class _MarkdownTextEditingController extends TextEditingController {
     }
 
     return TextSpan(style: baseStyle, children: children);
-  }
-
-  TextStyle _lineStyleForSyntax({
-    required LineSyntax syntax,
-    required TextStyle lineStyle,
-  }) {
-    final list = syntax.list;
-    if (list == null || list.type != ListType.ordered) {
-      return lineStyle;
-    }
-
-    final features = <FontFeature>[
-      ...?lineStyle.fontFeatures,
-      const FontFeature.tabularFigures(),
-    ];
-    return lineStyle.copyWith(fontFeatures: features);
-  }
-
-  TextEditingValue _applyListInputRules({
-    required TextEditingValue oldValue,
-    required TextEditingValue newValue,
-  }) {
-    if (!oldValue.selection.isValid ||
-        !newValue.selection.isValid ||
-        !oldValue.selection.isCollapsed ||
-        !newValue.selection.isCollapsed) {
-      return newValue;
-    }
-
-    final enterAdjusted = _applyEnterListRule(
-      oldValue: oldValue,
-      newValue: newValue,
-    );
-    if (enterAdjusted != null) {
-      return enterAdjusted;
-    }
-
-    final backspaceAdjusted = _applyBackspaceListRule(
-      oldValue: oldValue,
-      newValue: newValue,
-    );
-    if (backspaceAdjusted != null) {
-      return backspaceAdjusted;
-    }
-
-    return newValue;
-  }
-
-  TextEditingValue? _applyEnterListRule({
-    required TextEditingValue oldValue,
-    required TextEditingValue newValue,
-  }) {
-    if (newValue.text.length != oldValue.text.length + 1) {
-      return null;
-    }
-    final insertionOffset = oldValue.selection.extentOffset;
-    if (insertionOffset < 0 || insertionOffset > oldValue.text.length) {
-      return null;
-    }
-    if (newValue.selection.extentOffset != insertionOffset + 1) {
-      return null;
-    }
-    if (newValue.text.substring(0, insertionOffset) !=
-        oldValue.text.substring(0, insertionOffset)) {
-      return null;
-    }
-    if (newValue.text.substring(insertionOffset, insertionOffset + 1) != '\n') {
-      return null;
-    }
-    if (newValue.text.substring(insertionOffset + 1) !=
-        oldValue.text.substring(insertionOffset)) {
-      return null;
-    }
-
-    final lineRange = _lineRangeForOffset(oldValue.text, insertionOffset);
-    final lineText = oldValue.text.substring(lineRange.start, lineRange.end);
-    final list = _config.lineSyntaxParser.parse(lineText).list;
-    if (list == null) {
-      return null;
-    }
-
-    final listPrefix = _listPrefix(list);
-    final contentText = lineText.length > listPrefix.length
-        ? lineText.substring(listPrefix.length)
-        : '';
-
-    // Enter on an empty list item exits the list.
-    if (contentText.trim().isEmpty) {
-      final adjustedText = newValue.text.replaceRange(
-        lineRange.start,
-        lineRange.end,
-        '',
-      );
-      final removedLength = lineRange.end - lineRange.start;
-      final adjustedOffset = newValue.selection.extentOffset - removedLength;
-      return newValue.copyWith(
-        text: adjustedText,
-        selection: TextSelection.collapsed(offset: adjustedOffset),
-        composing: TextRange.empty,
-      );
-    }
-
-    final nextPrefix = _nextListPrefix(list);
-    final adjustedText = newValue.text.replaceRange(
-      insertionOffset + 1,
-      insertionOffset + 1,
-      nextPrefix,
-    );
-    return newValue.copyWith(
-      text: adjustedText,
-      selection: TextSelection.collapsed(
-        offset: newValue.selection.extentOffset + nextPrefix.length,
-      ),
-      composing: TextRange.empty,
-    );
-  }
-
-  TextEditingValue? _applyBackspaceListRule({
-    required TextEditingValue oldValue,
-    required TextEditingValue newValue,
-  }) {
-    if (newValue.text.length + 1 != oldValue.text.length) {
-      return null;
-    }
-    final oldOffset = oldValue.selection.extentOffset;
-    if (oldOffset <= 0) {
-      return null;
-    }
-    if (newValue.selection.extentOffset != oldOffset - 1) {
-      return null;
-    }
-    if (oldValue.text.substring(0, oldOffset - 1) !=
-        newValue.text.substring(0, oldOffset - 1)) {
-      return null;
-    }
-    if (oldValue.text.substring(oldOffset) !=
-        newValue.text.substring(oldOffset - 1)) {
-      return null;
-    }
-
-    final lineRange = _lineRangeForOffset(oldValue.text, oldOffset);
-    if (oldOffset != lineRange.end) {
-      return null;
-    }
-    final lineText = oldValue.text.substring(lineRange.start, lineRange.end);
-    final list = _config.lineSyntaxParser.parse(lineText).list;
-    if (list == null) {
-      return null;
-    }
-
-    final listPrefix = _listPrefix(list);
-    if (lineText != listPrefix) {
-      return null;
-    }
-
-    final adjustedText = oldValue.text.replaceRange(
-      lineRange.start,
-      lineRange.end,
-      '',
-    );
-    return oldValue.copyWith(
-      text: adjustedText,
-      selection: TextSelection.collapsed(offset: lineRange.start),
-      composing: TextRange.empty,
-    );
-  }
-
-  String _listPrefix(ListSyntax list) {
-    final indent = ' ' * list.indent;
-    switch (list.type) {
-      case ListType.unordered:
-        return '$indent${list.marker!} ';
-      case ListType.ordered:
-        return '$indent${list.number!}. ';
-    }
-  }
-
-  String _nextListPrefix(ListSyntax list) {
-    final indent = ' ' * list.indent;
-    switch (list.type) {
-      case ListType.unordered:
-        return '$indent${list.marker!} ';
-      case ListType.ordered:
-        return '$indent${list.number! + 1}. ';
-    }
-  }
-
-  ({int start, int end}) _lineRangeForOffset(String text, int offset) {
-    final lineStart = offset == 0
-        ? 0
-        : (text.lastIndexOf('\n', offset - 1) + 1);
-    final lineEnd = text.indexOf('\n', offset);
-    return (start: lineStart, end: lineEnd == -1 ? text.length : lineEnd);
-  }
-
-  String _renderLineText(String lineText, LineSyntax syntax) {
-    final list = syntax.list;
-    if (list == null) {
-      return lineText;
-    }
-    switch (list.type) {
-      case ListType.unordered:
-        final markerIndex = list.indent;
-        if (markerIndex < 0 || markerIndex >= lineText.length) {
-          return lineText;
-        }
-        return lineText.replaceRange(markerIndex, markerIndex + 1, '•');
-      case ListType.ordered:
-        return lineText;
-    }
   }
 
   TextSpan _buildComposingTextSpan({

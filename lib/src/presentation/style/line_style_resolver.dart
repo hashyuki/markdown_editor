@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'dart:ui' show FontFeature;
 
 import '../../domain/model/line_syntax.dart';
 
@@ -22,9 +23,26 @@ class HeadingLineStyleResolver implements LineStyleResolver {
     required Map<int, TextStyle> headingStyles,
   }) {
     final headingLevel = syntax.headingLevel;
-    if (headingLevel == null) {
-      return paragraphStyle;
+    final style = headingLevel == null
+        ? paragraphStyle
+        : paragraphStyle.merge(headingStyles[headingLevel]);
+
+    final list = syntax.list;
+    if (list == null || list.type != ListType.ordered) {
+      return style;
     }
-    return paragraphStyle.merge(headingStyles[headingLevel]);
+
+    final hasTabular = style.fontFeatures?.contains(
+      const FontFeature.tabularFigures(),
+    );
+    if (hasTabular == true) {
+      return style;
+    }
+    return style.copyWith(
+      fontFeatures: [
+        ...?style.fontFeatures,
+        const FontFeature.tabularFigures(),
+      ],
+    );
   }
 }

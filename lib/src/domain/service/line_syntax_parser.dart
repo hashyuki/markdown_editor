@@ -7,8 +7,8 @@ abstract interface class LineSyntaxParser {
   LineSyntax parse(String line);
 }
 
-class HeadingLineSyntaxParser implements LineSyntaxParser {
-  const HeadingLineSyntaxParser();
+class MarkdownLineSyntaxParser implements LineSyntaxParser {
+  const MarkdownLineSyntaxParser();
 
   static final RegExp _unorderedListPattern = RegExp(r'^(\s*)([*+-])\s(.*)$');
   static final RegExp _orderedListPattern = RegExp(r'^(\s*)(\d+)\. (.*)$');
@@ -37,4 +37,9 @@ class HeadingLineSyntaxParser implements LineSyntaxParser {
 
     return LineSyntax(headingLevel: EditorLine(line).headingLevel);
   }
+}
+
+@Deprecated('Use MarkdownLineSyntaxParser instead.')
+class HeadingLineSyntaxParser extends MarkdownLineSyntaxParser {
+  const HeadingLineSyntaxParser();
 }
