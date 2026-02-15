@@ -35,14 +35,14 @@ class HeadingLineStyleResolver implements LineStyleResolver {
     final hasTabular = style.fontFeatures?.contains(
       const FontFeature.tabularFigures(),
     );
-    if (hasTabular == true) {
-      return style;
-    }
+    final fontFeatures = hasTabular == true
+        ? style.fontFeatures
+        : [...?style.fontFeatures, const FontFeature.tabularFigures()];
+
     return style.copyWith(
-      fontFeatures: [
-        ...?style.fontFeatures,
-        const FontFeature.tabularFigures(),
-      ],
+      fontFamily: 'monospace',
+      fontFeatures: fontFeatures,
+      fontFamilyFallback: const ['monospace'],
     );
   }
 }

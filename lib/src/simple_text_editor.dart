@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 
 import 'domain/model/line_syntax.dart';
 import 'domain/service/markdown_list_editing_service.dart';
@@ -164,21 +165,44 @@ class _SimpleTextEditorState extends State<SimpleTextEditor> {
         child: ValueListenableBuilder<int?>(
           valueListenable: _selectionHeadingTracker,
           builder: (context, headingLevel, _) {
-            return TextField(
-              key: const Key('simple_text_editor_input'),
-              controller: _controller,
-              focusNode: _focusNode,
-              style: paragraphStyle,
-              strutStyle: StrutStyle.disabled,
-              cursorHeight: _cursorHeightForHeading(context, headingLevel),
-              autofocus: widget.autofocus,
-              keyboardType: TextInputType.multiline,
-              textInputAction: TextInputAction.newline,
-              minLines: null,
-              maxLines: null,
-              expands: true,
-              decoration: InputDecoration.collapsed(hintText: widget.hintText),
-              onChanged: widget.onChanged,
+            return Focus(
+              onKeyEvent: (node, event) {
+                if (event is! KeyDownEvent ||
+                    event.logicalKey != LogicalKeyboardKey.tab) {
+                  return KeyEventResult.ignored;
+                }
+                final isShiftPressed =
+                    HardwareKeyboard.instance.logicalKeysPressed.contains(
+                      LogicalKeyboardKey.shiftLeft,
+                    ) ||
+                    HardwareKeyboard.instance.logicalKeysPressed.contains(
+                      LogicalKeyboardKey.shiftRight,
+                    );
+                final handled = _controller.handleTabIndentation(
+                  outdent: isShiftPressed,
+                );
+                return handled
+                    ? KeyEventResult.handled
+                    : KeyEventResult.ignored;
+              },
+              child: TextField(
+                key: const Key('simple_text_editor_input'),
+                controller: _controller,
+                focusNode: _focusNode,
+                style: paragraphStyle,
+                strutStyle: StrutStyle.disabled,
+                cursorHeight: _cursorHeightForHeading(context, headingLevel),
+                autofocus: widget.autofocus,
+                keyboardType: TextInputType.multiline,
+                textInputAction: TextInputAction.newline,
+                minLines: null,
+                maxLines: null,
+                expands: true,
+                decoration: InputDecoration.collapsed(
+                  hintText: widget.hintText,
+                ),
+                onChanged: widget.onChanged,
+              ),
             );
           },
         ),
@@ -234,6 +258,31 @@ class _MarkdownTextEditingController extends TextEditingController {
     super.value = adjustedValue;
   }
 
+  bool handleTabIndentation({required bool outdent}) {
+    final current = super.value;
+    final currentSnapshot = EditorTextSnapshot(
+      text: current.text,
+      baseOffset: current.selection.baseOffset,
+      extentOffset: current.selection.extentOffset,
+    );
+    final adjusted = _listEditingService.applyTabIndentation(
+      value: currentSnapshot,
+      outdent: outdent,
+    );
+    if (adjusted == currentSnapshot) {
+      return false;
+    }
+    super.value = TextEditingValue(
+      text: adjusted.text,
+      selection: TextSelection(
+        baseOffset: adjusted.baseOffset,
+        extentOffset: adjusted.extentOffset,
+      ),
+      composing: TextRange.empty,
+    );
+    return true;
+  }
+
   @override
   TextSpan buildTextSpan({
     required BuildContext context,
@@ -253,6 +302,7 @@ class _MarkdownTextEditingController extends TextEditingController {
     final composingRange = withComposing && value.isComposingRangeValid
         ? value.composing
         : null;
+    final orderedLevels = <_OrderedVisualLevel>[];
     var lineStart = 0;
     for (var offset = 0; offset <= text.length; offset++) {
       final isLineEnd = offset == text.length || text.codeUnitAt(offset) == 10;
@@ -263,9 +313,14 @@ class _MarkdownTextEditingController extends TextEditingController {
       final lineEnd = offset;
       final lineText = text.substring(lineStart, lineEnd);
       final syntax = _config.lineSyntaxParser.parse(lineText);
+      final orderedDisplayNumber = _nextOrderedDisplayNumber(
+        syntax: syntax,
+        levels: orderedLevels,
+      );
       final renderedLineText = _config.lineTextRenderer.render(
         lineText: lineText,
         syntax: syntax,
+        orderedDisplayNumber: orderedDisplayNumber,
       );
       final resolvedLineStyle = _config.lineStyleResolver.resolve(
         paragraphStyle: baseStyle,
@@ -297,6 +352,34 @@ class _MarkdownTextEditingController extends TextEditingController {
     }
 
     return TextSpan(style: baseStyle, children: children);
+  }
+
+  int? _nextOrderedDisplayNumber({
+    required LineSyntax syntax,
+    required List<_OrderedVisualLevel> levels,
+  }) {
+    final list = syntax.list;
+    if (list == null || list.type != ListType.ordered) {
+      levels.clear();
+      return null;
+    }
+
+    levels.removeWhere((level) => level.indent > list.indent);
+    _OrderedVisualLevel? currentLevel;
+    for (final level in levels) {
+      if (level.indent == list.indent) {
+        currentLevel = level;
+        break;
+      }
+    }
+    if (currentLevel == null) {
+      currentLevel = _OrderedVisualLevel(indent: list.indent);
+      levels.add(currentLevel);
+    }
+
+    final number = currentLevel.nextNumber;
+    currentLevel.nextNumber += 1;
+    return number;
   }
 
   TextSpan _buildComposingTextSpan({
@@ -347,4 +430,11 @@ class _MarkdownTextEditingController extends TextEditingController {
 
     return TextSpan(style: style, children: children);
   }
+}
+
+class _OrderedVisualLevel {
+  _OrderedVisualLevel({required this.indent});
+
+  final int indent;
+  int nextNumber = 1;
 }

@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'dart:ui' show FontFeature;
+import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:markdown_editor/markdown_editor.dart';
 
@@ -356,6 +357,34 @@ void main() {
       );
     });
 
+    testWidgets('renders ordered numbers from nesting context', (tester) async {
+      final controller = TextEditingController(
+        text: '1. aaa\n1. bbb\n   1. ccc\n   1. ddd\n1. eee',
+      );
+      addTearDown(controller.dispose);
+
+      await tester.pumpWidget(
+        MaterialApp(
+          home: Scaffold(body: SimpleTextEditor(controller: controller)),
+        ),
+      );
+
+      final editable = tester.widget<EditableText>(find.byType(EditableText));
+      final context = tester.element(find.byType(EditableText));
+      final textSpan = editable.controller.buildTextSpan(
+        context: context,
+        style: editable.style,
+        withComposing: true,
+      );
+      final leafTexts = _collectLeafSpans(textSpan).map((span) => span.text);
+
+      expect(leafTexts, contains('1. aaa'));
+      expect(leafTexts, contains('2. bbb'));
+      expect(leafTexts, contains('   1. ccc'));
+      expect(leafTexts, contains('   2. ddd'));
+      expect(leafTexts, contains('3. eee'));
+    });
+
     testWidgets('pressing enter continues unordered list', (tester) async {
       final controller = TextEditingController(text: '- item');
       addTearDown(controller.dispose);
@@ -406,6 +435,34 @@ void main() {
       expect(editable.controller.selection.baseOffset, 8);
     });
 
+    testWidgets(
+      'pressing enter on nested empty list item outdents one level and continues',
+      (tester) async {
+        final controller = TextEditingController(text: '1. parent\n   1. ');
+        addTearDown(controller.dispose);
+
+        await tester.pumpWidget(
+          MaterialApp(
+            home: Scaffold(body: SimpleTextEditor(controller: controller)),
+          ),
+        );
+
+        final editable = tester.widget<EditableText>(find.byType(EditableText));
+        editable.controller.value = const TextEditingValue(
+          text: '1. parent\n   1. ',
+          selection: TextSelection.collapsed(offset: 16),
+        );
+        editable.controller.value = const TextEditingValue(
+          text: '1. parent\n   1. \n',
+          selection: TextSelection.collapsed(offset: 17),
+        );
+        await tester.pump();
+
+        expect(editable.controller.text, '1. parent\n1. ');
+        expect(editable.controller.selection.baseOffset, 13);
+      },
+    );
+
     testWidgets('backspace on empty list item exits list', (tester) async {
       final controller = TextEditingController(text: '- ');
       addTearDown(controller.dispose);
@@ -431,7 +488,7 @@ void main() {
       expect(editable.controller.selection.baseOffset, 0);
     });
 
-    testWidgets('pressing enter continues ordered list with next number', (
+    testWidgets('pressing enter keeps ordered list text number as 1', (
       tester,
     ) async {
       final controller = TextEditingController(text: '1. item');
@@ -454,8 +511,132 @@ void main() {
       );
       await tester.pump();
 
-      expect(editable.controller.text, '1. item\n2. ');
+      expect(editable.controller.text, '1. item\n1. ');
       expect(editable.controller.selection.baseOffset, 11);
+    });
+
+    testWidgets('tab indents current list item and shift+tab outdents', (
+      tester,
+    ) async {
+      final controller = TextEditingController(text: '- item');
+      addTearDown(controller.dispose);
+
+      await tester.pumpWidget(
+        MaterialApp(
+          home: Scaffold(
+            body: SimpleTextEditor(controller: controller, autofocus: true),
+          ),
+        ),
+      );
+      await tester.pump();
+
+      controller.selection = const TextSelection.collapsed(offset: 6);
+      await tester.sendKeyDownEvent(LogicalKeyboardKey.tab);
+      await tester.sendKeyUpEvent(LogicalKeyboardKey.tab);
+      await tester.pump();
+
+      expect(controller.text, '  - item');
+      expect(controller.selection.baseOffset, 8);
+
+      await tester.sendKeyDownEvent(LogicalKeyboardKey.shiftLeft);
+      await tester.sendKeyDownEvent(LogicalKeyboardKey.tab);
+      await tester.sendKeyUpEvent(LogicalKeyboardKey.tab);
+      await tester.sendKeyUpEvent(LogicalKeyboardKey.shiftLeft);
+      await tester.pump();
+
+      expect(controller.text, '- item');
+      expect(controller.selection.baseOffset, 6);
+    });
+
+    testWidgets('tab on ordered list uses digit-based indent and resets to 1', (
+      tester,
+    ) async {
+      final controller = TextEditingController(text: '12. item');
+      addTearDown(controller.dispose);
+
+      await tester.pumpWidget(
+        MaterialApp(
+          home: Scaffold(
+            body: SimpleTextEditor(controller: controller, autofocus: true),
+          ),
+        ),
+      );
+      await tester.pump();
+
+      controller.selection = const TextSelection.collapsed(offset: 8);
+      await tester.sendKeyDownEvent(LogicalKeyboardKey.tab);
+      await tester.sendKeyUpEvent(LogicalKeyboardKey.tab);
+      await tester.pump();
+
+      expect(controller.text, '    1. item');
+      expect(controller.selection.baseOffset, 11);
+    });
+
+    testWidgets('shift+tab on ordered nested line keeps text number as 1', (
+      tester,
+    ) async {
+      final controller = TextEditingController(
+        text: '1. a\n2. b\n   1. a\n   2. b\n   3. c',
+      );
+      addTearDown(controller.dispose);
+
+      await tester.pumpWidget(
+        MaterialApp(
+          home: Scaffold(
+            body: SimpleTextEditor(controller: controller, autofocus: true),
+          ),
+        ),
+      );
+      await tester.pump();
+
+      controller.selection = TextSelection.collapsed(
+        offset: controller.text.length,
+      );
+      await tester.sendKeyDownEvent(LogicalKeyboardKey.shiftLeft);
+      await tester.sendKeyDownEvent(LogicalKeyboardKey.tab);
+      await tester.sendKeyUpEvent(LogicalKeyboardKey.tab);
+      await tester.sendKeyUpEvent(LogicalKeyboardKey.shiftLeft);
+      await tester.pump();
+
+      expect(controller.text, '1. a\n2. b\n   1. a\n   2. b\n1. c');
+    });
+
+    testWidgets('tab and shift+tab apply to all selected lines', (
+      tester,
+    ) async {
+      final controller = TextEditingController(text: '- a\n- b\n- c');
+      addTearDown(controller.dispose);
+
+      await tester.pumpWidget(
+        MaterialApp(
+          home: Scaffold(
+            body: SimpleTextEditor(controller: controller, autofocus: true),
+          ),
+        ),
+      );
+      await tester.pump();
+
+      controller.selection = TextSelection(
+        baseOffset: 0,
+        extentOffset: controller.text.length,
+      );
+      await tester.sendKeyDownEvent(LogicalKeyboardKey.tab);
+      await tester.sendKeyUpEvent(LogicalKeyboardKey.tab);
+      await tester.pump();
+
+      expect(controller.text, '  - a\n  - b\n  - c');
+      expect(controller.selection.baseOffset, 2);
+      expect(controller.selection.extentOffset, controller.text.length);
+
+      await tester.sendKeyDownEvent(LogicalKeyboardKey.shiftLeft);
+      await tester.sendKeyDownEvent(LogicalKeyboardKey.tab);
+      await tester.sendKeyUpEvent(LogicalKeyboardKey.tab);
+      await tester.sendKeyUpEvent(LogicalKeyboardKey.shiftLeft);
+      await tester.pump();
+
+      expect(controller.text, '- a\n- b\n- c');
+      expect(controller.selection.baseOffset, 0);
+      expect(controller.selection.extentOffset, controller.text.length);
     });
 
     testWidgets('allows interactive text selection', (tester) async {

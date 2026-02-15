@@ -3,14 +3,22 @@ import '../../domain/model/line_syntax.dart';
 abstract interface class LineTextRenderer {
   const LineTextRenderer();
 
-  String render({required String lineText, required LineSyntax syntax});
+  String render({
+    required String lineText,
+    required LineSyntax syntax,
+    int? orderedDisplayNumber,
+  });
 }
 
 class MarkdownLineTextRenderer implements LineTextRenderer {
   const MarkdownLineTextRenderer();
 
   @override
-  String render({required String lineText, required LineSyntax syntax}) {
+  String render({
+    required String lineText,
+    required LineSyntax syntax,
+    int? orderedDisplayNumber,
+  }) {
     final list = syntax.list;
     if (list == null) {
       return lineText;
@@ -23,7 +31,15 @@ class MarkdownLineTextRenderer implements LineTextRenderer {
         }
         return lineText.replaceRange(markerIndex, markerIndex + 1, '•');
       case ListType.ordered:
-        return lineText;
+        if (orderedDisplayNumber == null) {
+          return lineText;
+        }
+        final prefixPattern = RegExp(r'^(\s*)(\d+)(\. .*)$');
+        final match = prefixPattern.firstMatch(lineText);
+        if (match == null) {
+          return lineText;
+        }
+        return '${match.group(1)!}$orderedDisplayNumber${match.group(3)!}';
     }
   }
 }
