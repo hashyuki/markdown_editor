@@ -1,5 +1,4 @@
 import 'package:flutter/material.dart';
-import 'dart:ui' show FontFeature;
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:markdown_editor/markdown_editor.dart';

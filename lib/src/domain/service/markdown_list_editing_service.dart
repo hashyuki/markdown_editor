@@ -1,53 +1,9 @@
-import '../model/line_syntax.dart';
-import 'line_syntax_parser.dart';
-import 'line_text_range.dart';
 import 'dart:math' as math;
 
-class EditorTextSnapshot {
-  const EditorTextSnapshot({
-    required this.text,
-    required this.baseOffset,
-    required this.extentOffset,
-  });
-
-  final String text;
-  final int baseOffset;
-  final int extentOffset;
-
-  bool get isSelectionValid =>
-      baseOffset >= 0 &&
-      extentOffset >= 0 &&
-      baseOffset <= text.length &&
-      extentOffset <= text.length;
-
-  bool get isCollapsed => baseOffset == extentOffset;
-
-  EditorTextSnapshot copyWith({
-    String? text,
-    int? baseOffset,
-    int? extentOffset,
-  }) {
-    return EditorTextSnapshot(
-      text: text ?? this.text,
-      baseOffset: baseOffset ?? this.baseOffset,
-      extentOffset: extentOffset ?? this.extentOffset,
-    );
-  }
-
-  @override
-  bool operator ==(Object other) {
-    if (identical(this, other)) {
-      return true;
-    }
-    return other is EditorTextSnapshot &&
-        text == other.text &&
-        baseOffset == other.baseOffset &&
-        extentOffset == other.extentOffset;
-  }
-
-  @override
-  int get hashCode => Object.hash(text, baseOffset, extentOffset);
-}
+import '../model/line_syntax.dart';
+import '../model/text_edit_state.dart';
+import 'line_syntax_parser.dart';
+import 'line_text_range.dart';
 
 class MarkdownListEditingService {
   MarkdownListEditingService({required LineSyntaxParser parser})
@@ -55,44 +11,18 @@ class MarkdownListEditingService {
 
   static const int _indentSize = 2;
 
-  LineSyntaxParser _parser;
+  final LineSyntaxParser _parser;
 
-  void updateParser(LineSyntaxParser parser) {
-    _parser = parser;
+  TextEditState applyEnter({required TextEditState value}) {
+    return _applyEnterRule(value: value) ?? value;
   }
 
-  EditorTextSnapshot applyRules({
-    required EditorTextSnapshot oldValue,
-    required EditorTextSnapshot newValue,
-  }) {
-    if (!oldValue.isSelectionValid ||
-        !newValue.isSelectionValid ||
-        !oldValue.isCollapsed ||
-        !newValue.isCollapsed) {
-      return newValue;
-    }
-
-    final enterAdjusted = _applyEnterRule(
-      oldValue: oldValue,
-      newValue: newValue,
-    );
-    if (enterAdjusted != null) {
-      return enterAdjusted;
-    }
-
-    final backspaceAdjusted = _applyBackspaceRule(
-      oldValue: oldValue,
-      newValue: newValue,
-    );
-    if (backspaceAdjusted != null) {
-      return backspaceAdjusted;
-    }
-
-    return newValue;
+  TextEditState applyBackspace({required TextEditState value}) {
+    return _applyBackspaceRule(value: value) ?? value;
   }
 
-  EditorTextSnapshot applyTabIndentation({
-    required EditorTextSnapshot value,
+  TextEditState applyTabIndentation({
+    required TextEditState value,
     required bool outdent,
   }) {
     if (!value.isSelectionValid) {
@@ -101,8 +31,8 @@ class MarkdownListEditingService {
 
     final lineStarts = _selectedLineStarts(
       text: value.text,
-      baseOffset: value.baseOffset,
-      extentOffset: value.extentOffset,
+      selectionStart: value.selectionStart,
+      selectionEnd: value.selectionEnd,
     );
     var snapshot = value;
     var cumulativeDelta = 0;
@@ -121,8 +51,8 @@ class MarkdownListEditingService {
     return snapshot;
   }
 
-  ({EditorTextSnapshot snapshot, int delta}) _applyTabIndentationToLine({
-    required EditorTextSnapshot snapshot,
+  ({TextEditState snapshot, int delta}) _applyTabIndentationToLine({
+    required TextEditState snapshot,
     required int lineStart,
     required bool outdent,
   }) {
@@ -139,14 +69,14 @@ class MarkdownListEditingService {
     final oldIndent = list.indent;
     final indentStep = _indentStepForList(list);
     final newIndent = outdent
-        ? (oldIndent - indentStep).clamp(0, oldIndent)
+        ? math.max(0, oldIndent - indentStep)
         : oldIndent + indentStep;
     if (newIndent == oldIndent) {
       return (snapshot: snapshot, delta: 0);
     }
 
     final oldPrefix = _listPrefix(oldIndent, list.marker, list.number);
-    final updatedNumber = _updatedNumberForTab(list: list);
+    final updatedNumber = _normalizedOrderedNumber(list: list);
     final newPrefix = _listPrefix(newIndent, list.marker, updatedNumber);
     final content = lineText.substring(oldPrefix.length);
     final updatedLineText = '$newPrefix$content';
@@ -175,10 +105,10 @@ class MarkdownListEditingService {
     }
 
     return (
-      snapshot: EditorTextSnapshot(
+      snapshot: TextEditState(
         text: updatedText,
-        baseOffset: adjustOffset(snapshot.baseOffset),
-        extentOffset: adjustOffset(snapshot.extentOffset),
+        selectionStart: adjustOffset(snapshot.selectionStart),
+        selectionEnd: adjustOffset(snapshot.selectionEnd),
       ),
       delta: totalDelta,
     );
@@ -186,11 +116,11 @@ class MarkdownListEditingService {
 
   List<int> _selectedLineStarts({
     required String text,
-    required int baseOffset,
-    required int extentOffset,
+    required int selectionStart,
+    required int selectionEnd,
   }) {
-    final start = math.min(baseOffset, extentOffset).clamp(0, text.length);
-    final end = math.max(baseOffset, extentOffset).clamp(0, text.length);
+    final start = math.min(selectionStart, selectionEnd).clamp(0, text.length);
+    final end = math.max(selectionStart, selectionEnd).clamp(0, text.length);
     final anchor = end > start ? end - 1 : end;
     final firstLineStart = lineTextRangeForOffset(text, start).start;
     final lastLineStart = lineTextRangeForOffset(text, anchor).start;
@@ -218,43 +148,24 @@ class MarkdownListEditingService {
     return _indentSize;
   }
 
-  int? _updatedNumberForTab({required ListSyntax list}) {
+  int? _normalizedOrderedNumber({required ListSyntax list}) {
     if (list.type != ListType.ordered) {
       return list.number;
     }
     return 1;
   }
 
-  EditorTextSnapshot? _applyEnterRule({
-    required EditorTextSnapshot oldValue,
-    required EditorTextSnapshot newValue,
-  }) {
-    if (newValue.text.length != oldValue.text.length + 1) {
+  TextEditState? _applyEnterRule({required TextEditState value}) {
+    if (!value.isSelectionValid || !value.isCollapsed) {
+      return null;
+    }
+    final insertionOffset = value.selectionEnd;
+    if (insertionOffset < 0 || insertionOffset > value.text.length) {
       return null;
     }
 
-    final insertionOffset = oldValue.extentOffset;
-    if (insertionOffset < 0 || insertionOffset > oldValue.text.length) {
-      return null;
-    }
-    if (newValue.extentOffset != insertionOffset + 1) {
-      return null;
-    }
-
-    if (newValue.text.substring(0, insertionOffset) !=
-        oldValue.text.substring(0, insertionOffset)) {
-      return null;
-    }
-    if (newValue.text.substring(insertionOffset, insertionOffset + 1) != '\n') {
-      return null;
-    }
-    if (newValue.text.substring(insertionOffset + 1) !=
-        oldValue.text.substring(insertionOffset)) {
-      return null;
-    }
-
-    final lineRange = lineTextRangeForOffset(oldValue.text, insertionOffset);
-    final lineText = oldValue.text.substring(lineRange.start, lineRange.end);
+    final lineRange = lineTextRangeForOffset(value.text, insertionOffset);
+    final lineText = value.text.substring(lineRange.start, lineRange.end);
     final list = _parser.parse(lineText).list;
     if (list == null) {
       return null;
@@ -267,91 +178,78 @@ class MarkdownListEditingService {
 
     if (contentText.trim().isEmpty) {
       if (list.indent > 0) {
-        final parentIndent = (list.indent - _indentStepForList(list)).clamp(
+        final parentIndent = math.max(
           0,
-          list.indent,
+          list.indent - _indentStepForList(list),
         );
         final parentPrefix = _listPrefix(
           parentIndent,
           list.marker,
-          _updatedNumberForTab(list: list),
+          _normalizedOrderedNumber(list: list),
         );
-        var replaceEnd = lineRange.end;
-        if (replaceEnd < newValue.text.length &&
-            newValue.text.substring(replaceEnd, replaceEnd + 1) == '\n') {
-          replaceEnd += 1;
-        }
-        final adjustedText = newValue.text.replaceRange(
+        final adjustedText = value.text.replaceRange(
           lineRange.start,
-          replaceEnd,
+          lineRange.end,
           parentPrefix,
         );
         final adjustedOffset = lineRange.start + parentPrefix.length;
-        return EditorTextSnapshot(
+        return TextEditState(
           text: adjustedText,
-          baseOffset: adjustedOffset,
-          extentOffset: adjustedOffset,
+          selectionStart: adjustedOffset,
+          selectionEnd: adjustedOffset,
         );
       }
 
-      final adjustedText = newValue.text.replaceRange(
+      final removedPrefixText = value.text.replaceRange(
         lineRange.start,
         lineRange.end,
         '',
       );
-      final removedLength = lineRange.end - lineRange.start;
-      final adjustedOffset = newValue.extentOffset - removedLength;
-      return EditorTextSnapshot(
+      final adjustedOffsetAfterRemoval =
+          insertionOffset - (lineRange.end - lineRange.start);
+      final adjustedText = removedPrefixText.replaceRange(
+        adjustedOffsetAfterRemoval,
+        adjustedOffsetAfterRemoval,
+        '\n',
+      );
+      final adjustedOffset = adjustedOffsetAfterRemoval + 1;
+      return TextEditState(
         text: adjustedText,
-        baseOffset: adjustedOffset,
-        extentOffset: adjustedOffset,
+        selectionStart: adjustedOffset,
+        selectionEnd: adjustedOffset,
       );
     }
 
     final nextPrefix = _nextListPrefix(list.indent, list.marker, list.number);
-    final adjustedText = newValue.text.replaceRange(
-      insertionOffset + 1,
-      insertionOffset + 1,
-      nextPrefix,
+    final adjustedText = value.text.replaceRange(
+      insertionOffset,
+      insertionOffset,
+      '\n$nextPrefix',
     );
-    final adjustedOffset = newValue.extentOffset + nextPrefix.length;
-    return EditorTextSnapshot(
+    final adjustedOffset = insertionOffset + 1 + nextPrefix.length;
+    return TextEditState(
       text: adjustedText,
-      baseOffset: adjustedOffset,
-      extentOffset: adjustedOffset,
+      selectionStart: adjustedOffset,
+      selectionEnd: adjustedOffset,
     );
   }
 
-  EditorTextSnapshot? _applyBackspaceRule({
-    required EditorTextSnapshot oldValue,
-    required EditorTextSnapshot newValue,
-  }) {
-    if (newValue.text.length + 1 != oldValue.text.length) {
+  TextEditState? _applyBackspaceRule({required TextEditState value}) {
+    if (!value.isSelectionValid || !value.isCollapsed) {
       return null;
     }
 
-    final oldOffset = oldValue.extentOffset;
+    final oldOffset = value.selectionEnd;
     if (oldOffset <= 0) {
       return null;
     }
-    if (newValue.extentOffset != oldOffset - 1) {
-      return null;
-    }
-    if (oldValue.text.substring(0, oldOffset - 1) !=
-        newValue.text.substring(0, oldOffset - 1)) {
-      return null;
-    }
-    if (oldValue.text.substring(oldOffset) !=
-        newValue.text.substring(oldOffset - 1)) {
-      return null;
-    }
 
-    final lineRange = lineTextRangeForOffset(oldValue.text, oldOffset);
+    final lineRange = lineTextRangeForOffset(value.text, oldOffset);
     if (oldOffset != lineRange.end) {
       return null;
     }
 
-    final lineText = oldValue.text.substring(lineRange.start, lineRange.end);
+    final lineText = value.text.substring(lineRange.start, lineRange.end);
     final list = _parser.parse(lineText).list;
     if (list == null) {
       return null;
@@ -362,15 +260,15 @@ class MarkdownListEditingService {
       return null;
     }
 
-    final adjustedText = oldValue.text.replaceRange(
+    final adjustedText = value.text.replaceRange(
       lineRange.start,
       lineRange.end,
       '',
     );
-    return EditorTextSnapshot(
+    return TextEditState(
       text: adjustedText,
-      baseOffset: lineRange.start,
-      extentOffset: lineRange.start,
+      selectionStart: lineRange.start,
+      selectionEnd: lineRange.start,
     );
   }
 

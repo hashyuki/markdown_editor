@@ -1,5 +1,4 @@
 import 'package:flutter/material.dart';
-import 'dart:ui' show FontFeature;
 
 import '../../domain/model/line_syntax.dart';
 
@@ -23,10 +22,30 @@ class HeadingLineStyleResolver implements LineStyleResolver {
     required Map<int, TextStyle> headingStyles,
   }) {
     final headingLevel = syntax.headingLevel;
-    final style = headingLevel == null
+    return headingLevel == null
         ? paragraphStyle
         : paragraphStyle.merge(headingStyles[headingLevel]);
+  }
+}
 
+class OrderedListMonospaceStyleResolver implements LineStyleResolver {
+  const OrderedListMonospaceStyleResolver({
+    this.baseResolver = const HeadingLineStyleResolver(),
+  });
+
+  final LineStyleResolver baseResolver;
+
+  @override
+  TextStyle resolve({
+    required TextStyle paragraphStyle,
+    required LineSyntax syntax,
+    required Map<int, TextStyle> headingStyles,
+  }) {
+    final style = baseResolver.resolve(
+      paragraphStyle: paragraphStyle,
+      syntax: syntax,
+      headingStyles: headingStyles,
+    );
     final list = syntax.list;
     if (list == null || list.type != ListType.ordered) {
       return style;
