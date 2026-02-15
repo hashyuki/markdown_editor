@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../../domain/service/line_syntax_parser.dart';
+import '../../domain/service/line_text_range.dart';
 
 class SelectionHeadingTracker extends ValueNotifier<int?> {
   SelectionHeadingTracker({
@@ -43,26 +44,8 @@ class SelectionHeadingTracker extends ValueNotifier<int?> {
     }
 
     final offset = selection.extentOffset.clamp(0, text.length);
-    final lineRange = _lineRangeForOffset(text, offset);
+    final lineRange = lineTextRangeForOffset(text, offset);
     final lineText = text.substring(lineRange.start, lineRange.end);
     return _parser.parse(lineText).headingLevel;
   }
-
-  _LineRange _lineRangeForOffset(String text, int offset) {
-    final lineStart = offset == 0
-        ? 0
-        : (text.lastIndexOf('\n', offset - 1) + 1);
-    final lineEnd = text.indexOf('\n', offset);
-    return _LineRange(
-      start: lineStart,
-      end: lineEnd == -1 ? text.length : lineEnd,
-    );
-  }
-}
-
-class _LineRange {
-  const _LineRange({required this.start, required this.end});
-
-  final int start;
-  final int end;
 }
