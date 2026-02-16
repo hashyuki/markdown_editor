@@ -1,19 +1,17 @@
-import 'package:flutter/widgets.dart';
+import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:markdown_editor/main.dart';
+import 'package:markdown_editor/markdown_editor.dart';
 
 void main() {
-  testWidgets('simple editor accepts input', (tester) async {
+  testWidgets('demo renders textfield-free rich document view', (tester) async {
     await tester.pumpWidget(const MyApp());
 
-    expect(find.byKey(const Key('simple_text_editor_input')), findsOneWidget);
-
-    await tester.enterText(
-      find.byKey(const Key('simple_text_editor_input')),
-      '# Hello markdown',
+    expect(find.byType(RichDocumentView), findsOneWidget);
+    expect(find.byType(RichText), findsWidgets);
+    expect(
+      find.textContaining('TextField-free Editor Prototype'),
+      findsOneWidget,
     );
-    await tester.pump();
-
-    expect(find.text('# Hello markdown'), findsOneWidget);
   });
 }
