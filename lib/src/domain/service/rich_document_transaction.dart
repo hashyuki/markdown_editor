@@ -141,7 +141,11 @@ class SetBlockTypeCommand implements RichDocumentEditCommand {
     this.headingLevel,
     this.indent,
     this.codeLanguage,
-  });
+  }) : assert(
+         type != BlockType.heading || headingLevel != null,
+         'headingLevel is required when setting heading type.',
+       ),
+       assert(indent == null || indent >= 0, 'indent must be non-negative.');
 
   final String blockId;
   final BlockType type;
@@ -152,12 +156,16 @@ class SetBlockTypeCommand implements RichDocumentEditCommand {
   @override
   RichDocument apply(RichDocument document) {
     final block = document.blockById(blockId);
+    final nextIndent =
+        type == BlockType.bulletListItem || type == BlockType.orderedListItem
+        ? (indent ?? block.indent)
+        : 0;
     return document.replaceBlock(
       block.copyWith(
         type: type,
         headingLevel: type == BlockType.heading ? headingLevel : null,
         clearHeadingLevel: type != BlockType.heading,
-        indent: indent,
+        indent: nextIndent,
         codeLanguage: type == BlockType.codeBlock ? codeLanguage : null,
         clearCodeLanguage: type != BlockType.codeBlock,
       ),

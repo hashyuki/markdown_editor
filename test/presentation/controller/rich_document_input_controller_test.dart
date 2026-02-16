@@ -182,7 +182,7 @@ void main() {
       final state = RichDocumentEditorState(
         document: RichDocument(
           blocks: <BlockNode>[
-            const BlockNode(
+            BlockNode(
               id: 'b1',
               type: BlockType.bulletListItem,
               indent: 0,
@@ -226,7 +226,7 @@ void main() {
       final state = RichDocumentEditorState(
         document: RichDocument(
           blocks: <BlockNode>[
-            const BlockNode(
+            BlockNode(
               id: 'b1',
               type: BlockType.orderedListItem,
               indent: 0,

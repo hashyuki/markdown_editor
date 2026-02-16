@@ -39,9 +39,112 @@ class EditRichDocumentUseCase {
     this.blockIdAllocator = const BlockIdAllocator(),
   });
 
-  final RichDocumentSelectionEngine selectionEngine;
-  final MarkdownBlockSyntaxService syntaxService;
-  final BlockIdAllocator blockIdAllocator;
+  final RichSelectionEngine selectionEngine;
+  final BlockSyntaxService syntaxService;
+  final BlockIdGenerator blockIdAllocator;
+
+  RichDocumentEditorState normalize(RichDocumentEditorState state) {
+    return _selectionDelegate.normalize(state);
+  }
+
+  RichDocumentEditorState moveLeft(
+    RichDocumentEditorState state, {
+    required bool expand,
+  }) {
+    return _selectionDelegate.moveLeft(state, expand: expand);
+  }
+
+  RichDocumentEditorState moveRight(
+    RichDocumentEditorState state, {
+    required bool expand,
+  }) {
+    return _selectionDelegate.moveRight(state, expand: expand);
+  }
+
+  RichDocumentEditorState moveUp(
+    RichDocumentEditorState state, {
+    required bool expand,
+  }) {
+    return _selectionDelegate.moveUp(state, expand: expand);
+  }
+
+  RichDocumentEditorState moveDown(
+    RichDocumentEditorState state, {
+    required bool expand,
+  }) {
+    return _selectionDelegate.moveDown(state, expand: expand);
+  }
+
+  RichDocumentEditorState moveToLineStart(
+    RichDocumentEditorState state, {
+    required bool expand,
+  }) {
+    return _selectionDelegate.moveToLineStart(state, expand: expand);
+  }
+
+  RichDocumentEditorState moveToLineEnd(
+    RichDocumentEditorState state, {
+    required bool expand,
+  }) {
+    return _selectionDelegate.moveToLineEnd(state, expand: expand);
+  }
+
+  RichDocumentEditorState selectAll(RichDocumentEditorState state) {
+    return _selectionDelegate.selectAll(state);
+  }
+
+  RichDocumentEditorState deleteSelection(RichDocumentEditorState state) {
+    return _mutationDelegate.deleteSelection(state);
+  }
+
+  String selectedPlainText(RichDocumentEditorState state) {
+    return _mutationDelegate.selectedPlainText(state);
+  }
+
+  RichDocumentEditorState pastePlainText(
+    RichDocumentEditorState state,
+    String text,
+  ) {
+    return _mutationDelegate.pastePlainText(state, text);
+  }
+
+  RichDocumentEditorState indentListItem(RichDocumentEditorState state) {
+    return _mutationDelegate.indentListItem(state);
+  }
+
+  RichDocumentEditorState outdentListItem(RichDocumentEditorState state) {
+    return _mutationDelegate.outdentListItem(state);
+  }
+
+  RichDocumentEditorState insertText(
+    RichDocumentEditorState state,
+    String text,
+  ) {
+    return _mutationDelegate.insertText(state, text);
+  }
+
+  RichDocumentEditorState insertNewLine(RichDocumentEditorState state) {
+    return _mutationDelegate.insertNewLine(state);
+  }
+
+  RichDocumentEditorState backspace(RichDocumentEditorState state) {
+    return _mutationDelegate.backspace(state);
+  }
+
+  _SelectionEditingDelegate get _selectionDelegate =>
+      _SelectionEditingDelegate(selectionEngine);
+
+  _MutationEditingDelegate get _mutationDelegate => _MutationEditingDelegate(
+    selectionEngine: selectionEngine,
+    syntaxService: syntaxService,
+    blockIdAllocator: blockIdAllocator,
+  );
+}
+
+class _SelectionEditingDelegate {
+  const _SelectionEditingDelegate(this.selectionEngine);
+
+  final RichSelectionEngine selectionEngine;
 
   RichDocumentEditorState normalize(RichDocumentEditorState state) {
     return state.copyWith(
@@ -154,6 +257,27 @@ class EditRichDocumentUseCase {
       clearPreferredColumn: true,
     );
   }
+}
+
+class _MutationEditingDelegate {
+  const _MutationEditingDelegate({
+    required this.selectionEngine,
+    required this.syntaxService,
+    required this.blockIdAllocator,
+  });
+
+  final RichSelectionEngine selectionEngine;
+  final BlockSyntaxService syntaxService;
+  final BlockIdGenerator blockIdAllocator;
+
+  RichDocumentEditorState normalize(RichDocumentEditorState state) {
+    return state.copyWith(
+      selection: selectionEngine.clampSelection(
+        state.document,
+        state.selection,
+      ),
+    );
+  }
 
   RichDocumentEditorState deleteSelection(RichDocumentEditorState state) {
     final normalized = normalize(state);
@@ -246,39 +370,6 @@ class EditRichDocumentUseCase {
       }
     }
     return next;
-  }
-
-  bool _isMarkerOnlyListBlock(BlockNode block) {
-    return syntaxService.isMarkerOnlyListBlock(block);
-  }
-
-  bool _isListLine(String line) {
-    return syntaxService.isListLine(line);
-  }
-
-  RichDocumentEditorState _insertRawNewLine(RichDocumentEditorState state) {
-    final editable = _deleteSelectionIfNeeded(normalize(state));
-    final caret = editable.selection.extent;
-    final currentBlock = editable.document.blockById(caret.blockId);
-    final newBlockId = blockIdAllocator.nextBlockId(editable.document);
-    var nextDocument = SplitBlockCommand(
-      blockId: caret.blockId,
-      offset: caret.offset,
-      newBlockId: newBlockId,
-    ).apply(editable.document);
-    if (currentBlock.type == BlockType.heading) {
-      nextDocument = SetBlockTypeCommand(
-        blockId: newBlockId,
-        type: BlockType.paragraph,
-      ).apply(nextDocument);
-    }
-    return editable.copyWith(
-      document: nextDocument,
-      selection: RichSelection.collapsed(
-        RichTextPosition(blockId: newBlockId, offset: 0),
-      ),
-      preferredColumn: 0,
-    );
   }
 
   RichDocumentEditorState indentListItem(RichDocumentEditorState state) {
@@ -458,6 +549,39 @@ class EditRichDocumentUseCase {
         RichTextPosition(blockId: previous.id, offset: previous.textLength),
       ),
       clearPreferredColumn: true,
+    );
+  }
+
+  bool _isMarkerOnlyListBlock(BlockNode block) {
+    return syntaxService.isMarkerOnlyListBlock(block);
+  }
+
+  bool _isListLine(String line) {
+    return syntaxService.isListLine(line);
+  }
+
+  RichDocumentEditorState _insertRawNewLine(RichDocumentEditorState state) {
+    final editable = _deleteSelectionIfNeeded(normalize(state));
+    final caret = editable.selection.extent;
+    final currentBlock = editable.document.blockById(caret.blockId);
+    final newBlockId = blockIdAllocator.nextBlockId(editable.document);
+    var nextDocument = SplitBlockCommand(
+      blockId: caret.blockId,
+      offset: caret.offset,
+      newBlockId: newBlockId,
+    ).apply(editable.document);
+    if (currentBlock.type == BlockType.heading) {
+      nextDocument = SetBlockTypeCommand(
+        blockId: newBlockId,
+        type: BlockType.paragraph,
+      ).apply(nextDocument);
+    }
+    return editable.copyWith(
+      document: nextDocument,
+      selection: RichSelection.collapsed(
+        RichTextPosition(blockId: newBlockId, offset: 0),
+      ),
+      preferredColumn: 0,
     );
   }
 
@@ -727,21 +851,21 @@ class EditRichDocumentUseCase {
     }
     return <InlineText>[InlineText(text: text)];
   }
+}
 
-  _NormalizedSelection _normalizeSelection(
-    RichDocument document,
-    RichSelection selection,
-  ) {
-    final baseIndex = document.indexOfBlock(selection.base.blockId);
-    final extentIndex = document.indexOfBlock(selection.extent.blockId);
-    final isBaseFirst =
-        baseIndex < extentIndex ||
-        (baseIndex == extentIndex &&
-            selection.base.offset <= selection.extent.offset);
-    return isBaseFirst
-        ? _NormalizedSelection(start: selection.base, end: selection.extent)
-        : _NormalizedSelection(start: selection.extent, end: selection.base);
-  }
+_NormalizedSelection _normalizeSelection(
+  RichDocument document,
+  RichSelection selection,
+) {
+  final baseIndex = document.indexOfBlock(selection.base.blockId);
+  final extentIndex = document.indexOfBlock(selection.extent.blockId);
+  final isBaseFirst =
+      baseIndex < extentIndex ||
+      (baseIndex == extentIndex &&
+          selection.base.offset <= selection.extent.offset);
+  return isBaseFirst
+      ? _NormalizedSelection(start: selection.base, end: selection.extent)
+      : _NormalizedSelection(start: selection.extent, end: selection.base);
 }
 
 class _NormalizedSelection {

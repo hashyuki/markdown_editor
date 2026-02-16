@@ -10,6 +10,17 @@ class RichTextPosition {
       offset: offset ?? this.offset,
     );
   }
+
+  @override
+  bool operator ==(Object other) {
+    return identical(this, other) ||
+        (other is RichTextPosition &&
+            blockId == other.blockId &&
+            offset == other.offset);
+  }
+
+  @override
+  int get hashCode => Object.hash(blockId, offset);
 }
 
 class RichSelection {
@@ -28,4 +39,15 @@ class RichSelection {
   RichSelection collapseToExtent() {
     return RichSelection.collapsed(extent);
   }
+
+  @override
+  bool operator ==(Object other) {
+    return identical(this, other) ||
+        (other is RichSelection &&
+            base == other.base &&
+            extent == other.extent);
+  }
+
+  @override
+  int get hashCode => Object.hash(base, extent);
 }

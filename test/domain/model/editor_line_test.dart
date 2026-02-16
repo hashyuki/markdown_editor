@@ -10,6 +10,7 @@ void main() {
       expect(const EditorLine('#### h4').headingLevel, 4);
       expect(const EditorLine('##### h5').headingLevel, 5);
       expect(const EditorLine('###### h6').headingLevel, 6);
+      expect(const EditorLine('   ## indented').headingLevel, 2);
     });
 
     test('returns null for non heading lines', () {

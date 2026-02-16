@@ -93,6 +93,35 @@ void main() {
       expect(result.headingLevel, 2);
     });
 
+    test('set block type to paragraph resets list indent', () {
+      final document = RichDocument(
+        blocks: <BlockNode>[
+          BlockNode(
+            id: 'b1',
+            type: BlockType.bulletListItem,
+            indent: 2,
+            inlines: <InlineText>[InlineText(text: '    - item')],
+          ),
+        ],
+      );
+
+      const command = SetBlockTypeCommand(
+        blockId: 'b1',
+        type: BlockType.paragraph,
+      );
+      final result = command.apply(document).blockById('b1');
+
+      expect(result.type, BlockType.paragraph);
+      expect(result.indent, 0);
+    });
+
+    test('set block type command requires heading level for headings', () {
+      expect(
+        () => SetBlockTypeCommand(blockId: 'b1', type: BlockType.heading),
+        throwsA(isA<AssertionError>()),
+      );
+    });
+
     test('applies multiple commands in one transaction', () {
       final document = RichDocument(
         blocks: <BlockNode>[BlockNode.paragraph(id: 'b1', text: 'Hello world')],

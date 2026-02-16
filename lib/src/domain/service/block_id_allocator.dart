@@ -1,8 +1,13 @@
 import '../model/rich_document.dart';
 
-class BlockIdAllocator {
+abstract interface class BlockIdGenerator {
+  String nextBlockId(RichDocument document);
+}
+
+class BlockIdAllocator implements BlockIdGenerator {
   const BlockIdAllocator();
 
+  @override
   String nextBlockId(RichDocument document) {
     var max = -1;
     final pattern = RegExp(r'^b(\d+)$');

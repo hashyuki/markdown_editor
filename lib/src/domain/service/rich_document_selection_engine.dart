@@ -11,9 +11,54 @@ class SelectionMoveResult {
   final int preferredColumn;
 }
 
-class RichDocumentSelectionEngine {
+abstract interface class RichSelectionEngine {
+  RichSelection clampSelection(RichDocument document, RichSelection selection);
+
+  RichSelection selectAll(RichDocument document);
+
+  RichSelection moveLeft(
+    RichDocument document,
+    RichSelection selection, {
+    bool expand = false,
+  });
+
+  RichSelection moveRight(
+    RichDocument document,
+    RichSelection selection, {
+    bool expand = false,
+  });
+
+  SelectionMoveResult moveUp(
+    RichDocument document,
+    RichSelection selection, {
+    int? preferredColumn,
+    bool expand = false,
+  });
+
+  SelectionMoveResult moveDown(
+    RichDocument document,
+    RichSelection selection, {
+    int? preferredColumn,
+    bool expand = false,
+  });
+
+  RichSelection moveToLineStart(
+    RichDocument document,
+    RichSelection selection, {
+    bool expand = false,
+  });
+
+  RichSelection moveToLineEnd(
+    RichDocument document,
+    RichSelection selection, {
+    bool expand = false,
+  });
+}
+
+class RichDocumentSelectionEngine implements RichSelectionEngine {
   const RichDocumentSelectionEngine();
 
+  @override
   RichSelection clampSelection(RichDocument document, RichSelection selection) {
     return RichSelection(
       base: _clampPosition(document, selection.base),
@@ -21,6 +66,7 @@ class RichDocumentSelectionEngine {
     );
   }
 
+  @override
   RichSelection selectAll(RichDocument document) {
     final first = document.blocks.first;
     final last = document.blocks.last;
@@ -30,6 +76,7 @@ class RichDocumentSelectionEngine {
     );
   }
 
+  @override
   RichSelection moveLeft(
     RichDocument document,
     RichSelection selection, {
@@ -45,6 +92,7 @@ class RichDocumentSelectionEngine {
     return _nextSelection(clamped, nextExtent: nextExtent, expand: expand);
   }
 
+  @override
   RichSelection moveRight(
     RichDocument document,
     RichSelection selection, {
@@ -60,6 +108,7 @@ class RichDocumentSelectionEngine {
     return _nextSelection(clamped, nextExtent: nextExtent, expand: expand);
   }
 
+  @override
   SelectionMoveResult moveUp(
     RichDocument document,
     RichSelection selection, {
@@ -91,6 +140,7 @@ class RichDocumentSelectionEngine {
     );
   }
 
+  @override
   SelectionMoveResult moveDown(
     RichDocument document,
     RichSelection selection, {
@@ -122,6 +172,7 @@ class RichDocumentSelectionEngine {
     );
   }
 
+  @override
   RichSelection moveToLineStart(
     RichDocument document,
     RichSelection selection, {
@@ -135,6 +186,7 @@ class RichDocumentSelectionEngine {
     return _nextSelection(clamped, nextExtent: nextExtent, expand: expand);
   }
 
+  @override
   RichSelection moveToLineEnd(
     RichDocument document,
     RichSelection selection, {

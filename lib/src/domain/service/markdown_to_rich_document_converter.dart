@@ -8,8 +8,10 @@ class MarkdownToRichDocumentConverter {
 
   final LineSyntaxParser _parser;
 
-  static final RegExp _orderedListPattern = RegExp(r'^(\s*)(\d+)\.\s+');
-  static final RegExp _unorderedListPattern = RegExp(r'^(\s*)[-*+]\s+');
+  static final RegExp _orderedListPattern = RegExp(r'^((?:  )*)(\d+)\. (.*)$');
+  static final RegExp _unorderedListPattern = RegExp(
+    r'^((?:  )*)([*+-])\s(.*)$',
+  );
   static final RegExp _headingPattern = RegExp(r'^\s{0,3}(#{1,6})\s+');
   static final RegExp _blockquotePattern = RegExp(r'^\s{0,3}>\s?');
 
@@ -49,7 +51,7 @@ class MarkdownToRichDocumentConverter {
         id: id,
         type: BlockType.heading,
         headingLevel: marker.length,
-        inlines: _plainInline(content),
+        inlines: _plainInline('$marker $content'),
       );
     }
 
@@ -57,31 +59,36 @@ class MarkdownToRichDocumentConverter {
     if (list != null) {
       if (list.type == ListType.ordered) {
         final match = _orderedListPattern.firstMatch(line);
-        final content = match == null ? line : line.substring(match.end);
+        final marker = match?.group(2) ?? '${list.number ?? 1}';
+        final content = match?.group(3) ?? line;
+        final normalized = '${_indentSpaces(list.indent)}$marker. $content';
         return BlockNode(
           id: id,
           type: BlockType.orderedListItem,
           indent: list.indent,
-          inlines: _plainInline(content),
+          inlines: _plainInline(normalized),
         );
       }
       final match = _unorderedListPattern.firstMatch(line);
-      final content = match == null ? line : line.substring(match.end);
+      final marker = match?.group(2) ?? (list.marker ?? '-');
+      final content = match?.group(3) ?? line;
+      final normalized = '${_indentSpaces(list.indent)}$marker $content';
       return BlockNode(
         id: id,
         type: BlockType.bulletListItem,
         indent: list.indent,
-        inlines: _plainInline(content),
+        inlines: _plainInline(normalized),
       );
     }
 
     final quoteMatch = _blockquotePattern.firstMatch(line);
     if (quoteMatch != null) {
       final content = line.substring(quoteMatch.end);
+      final normalized = '> $content';
       return BlockNode(
         id: id,
         type: BlockType.quote,
-        inlines: _plainInline(content),
+        inlines: _plainInline(normalized),
       );
     }
 
@@ -97,5 +104,9 @@ class MarkdownToRichDocumentConverter {
       return const <InlineText>[];
     }
     return <InlineText>[InlineText(text: text)];
+  }
+
+  String _indentSpaces(int indent) {
+    return List<String>.filled(indent, '  ').join();
   }
 }

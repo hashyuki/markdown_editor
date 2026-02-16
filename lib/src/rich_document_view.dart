@@ -89,7 +89,7 @@ class _RichDocumentViewState extends State<RichDocumentView> {
         oldWidget.selection != widget.selection) {
       final isLocalEcho =
           _lastLocallyEmittedDocument != null &&
-          widget.document == _lastLocallyEmittedDocument;
+          identical(widget.document, _lastLocallyEmittedDocument);
       if (oldWidget.document != widget.document && !isLocalEcho) {
         _history.reset();
       }
@@ -938,13 +938,14 @@ class _RichDocumentViewState extends State<RichDocumentView> {
           final start = globalOffset;
           final end = start + inline.text.length;
           globalOffset = end;
+          final inlineStyle = _inlineTextStyle(baseStyle, inline);
           if (range == null) {
-            return TextSpan(text: inline.text, style: baseStyle);
+            return TextSpan(text: inline.text, style: inlineStyle);
           }
           final selectedStart = start < range.start ? range.start : start;
           final selectedEnd = end > range.end ? range.end : end;
           if (selectedStart >= selectedEnd) {
-            return TextSpan(text: inline.text, style: baseStyle);
+            return TextSpan(text: inline.text, style: inlineStyle);
           }
 
           final before = inline.text.substring(0, selectedStart - start);
@@ -955,17 +956,37 @@ class _RichDocumentViewState extends State<RichDocumentView> {
           final after = inline.text.substring(selectedEnd - start);
           return TextSpan(
             children: [
-              if (before.isNotEmpty) TextSpan(text: before, style: baseStyle),
+              if (before.isNotEmpty) TextSpan(text: before, style: inlineStyle),
               if (selected.isNotEmpty)
                 TextSpan(
                   text: selected,
-                  style: baseStyle.copyWith(backgroundColor: highlight),
+                  style: inlineStyle.copyWith(backgroundColor: highlight),
                 ),
-              if (after.isNotEmpty) TextSpan(text: after, style: baseStyle),
+              if (after.isNotEmpty) TextSpan(text: after, style: inlineStyle),
             ],
           );
         })
         .toList(growable: false);
+  }
+
+  TextStyle _inlineTextStyle(TextStyle baseStyle, InlineText inline) {
+    var style = baseStyle;
+    if (inline.marks.contains(InlineMark.bold)) {
+      style = style.copyWith(fontWeight: FontWeight.w700);
+    }
+    if (inline.marks.contains(InlineMark.italic)) {
+      style = style.copyWith(fontStyle: FontStyle.italic);
+    }
+    if (inline.marks.contains(InlineMark.code)) {
+      style = style.copyWith(fontFamily: 'monospace');
+    }
+    if (inline.link != null) {
+      style = style.copyWith(
+        color: Colors.blue,
+        decoration: TextDecoration.underline,
+      );
+    }
+    return style;
   }
 
   List<InlineSpan> _buildPlainTextSpans(

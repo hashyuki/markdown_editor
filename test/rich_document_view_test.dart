@@ -290,7 +290,7 @@ void main() {
   ) async {
     final document = RichDocument(
       blocks: <BlockNode>[
-        const BlockNode(
+        BlockNode(
           id: 'b1',
           type: BlockType.heading,
           headingLevel: 1,
@@ -792,7 +792,7 @@ void main() {
   ) async {
     final document = RichDocument(
       blocks: <BlockNode>[
-        const BlockNode(
+        BlockNode(
           id: 'b1',
           type: BlockType.heading,
           headingLevel: 2,
@@ -828,7 +828,7 @@ void main() {
   ) async {
     final document = RichDocument(
       blocks: <BlockNode>[
-        const BlockNode(
+        BlockNode(
           id: 'b1',
           type: BlockType.heading,
           headingLevel: 1,
@@ -864,7 +864,7 @@ void main() {
   ) async {
     final document = RichDocument(
       blocks: <BlockNode>[
-        const BlockNode(
+        BlockNode(
           id: 'b1',
           type: BlockType.bulletListItem,
           indent: 0,
@@ -905,13 +905,13 @@ void main() {
   ) async {
     final document = RichDocument(
       blocks: <BlockNode>[
-        const BlockNode(
+        BlockNode(
           id: 'b1',
           type: BlockType.bulletListItem,
           indent: 0,
           inlines: <InlineText>[InlineText(text: '- aaa')],
         ),
-        const BlockNode(
+        BlockNode(
           id: 'b2',
           type: BlockType.bulletListItem,
           indent: 1,
@@ -965,25 +965,25 @@ void main() {
   ) async {
     final document = RichDocument(
       blocks: <BlockNode>[
-        const BlockNode(
+        BlockNode(
           id: 'b1',
           type: BlockType.orderedListItem,
           indent: 0,
           inlines: <InlineText>[InlineText(text: '1. aaa')],
         ),
-        const BlockNode(
+        BlockNode(
           id: 'b2',
           type: BlockType.orderedListItem,
           indent: 1,
           inlines: <InlineText>[InlineText(text: '  1. aaa')],
         ),
-        const BlockNode(
+        BlockNode(
           id: 'b3',
           type: BlockType.orderedListItem,
           indent: 1,
           inlines: <InlineText>[InlineText(text: '  1. aaa')],
         ),
-        const BlockNode(
+        BlockNode(
           id: 'b4',
           type: BlockType.orderedListItem,
           indent: 0,
@@ -1014,19 +1014,19 @@ void main() {
   testWidgets('ordered list increments on same indent level', (tester) async {
     final document = RichDocument(
       blocks: <BlockNode>[
-        const BlockNode(
+        BlockNode(
           id: 'b1',
           type: BlockType.orderedListItem,
           indent: 0,
           inlines: <InlineText>[InlineText(text: '1. aaa')],
         ),
-        const BlockNode(
+        BlockNode(
           id: 'b2',
           type: BlockType.orderedListItem,
           indent: 0,
           inlines: <InlineText>[InlineText(text: '1. bbb')],
         ),
-        const BlockNode(
+        BlockNode(
           id: 'b3',
           type: BlockType.orderedListItem,
           indent: 0,
@@ -1059,37 +1059,37 @@ void main() {
   ) async {
     final document = RichDocument(
       blocks: <BlockNode>[
-        const BlockNode(
+        BlockNode(
           id: 'b1',
           type: BlockType.orderedListItem,
           indent: 0,
           inlines: <InlineText>[InlineText(text: '1. top')],
         ),
-        const BlockNode(
+        BlockNode(
           id: 'b2',
           type: BlockType.orderedListItem,
           indent: 1,
           inlines: <InlineText>[InlineText(text: '  1. nested-a')],
         ),
-        const BlockNode(
+        BlockNode(
           id: 'b3',
           type: BlockType.orderedListItem,
           indent: 1,
           inlines: <InlineText>[InlineText(text: '  1. nested-b')],
         ),
-        const BlockNode(
+        BlockNode(
           id: 'b4',
           type: BlockType.orderedListItem,
           indent: 0,
           inlines: <InlineText>[InlineText(text: '1. second')],
         ),
-        const BlockNode(
+        BlockNode(
           id: 'b5',
           type: BlockType.orderedListItem,
           indent: 0,
           inlines: <InlineText>[InlineText(text: '1. third')],
         ),
-        const BlockNode(
+        BlockNode(
           id: 'b6',
           type: BlockType.orderedListItem,
           indent: 0,
@@ -1115,6 +1115,38 @@ void main() {
 
     final markerTexts = _orderedMarkerTexts(tester);
     expect(markerTexts, <String>['1.', '1.', '2.', '2.', '3.', '4.']);
+  });
+
+  testWidgets('inline bold mark is reflected in rendered text style', (
+    tester,
+  ) async {
+    final document = RichDocument(
+      blocks: <BlockNode>[
+        BlockNode(
+          id: 'b1',
+          type: BlockType.paragraph,
+          inlines: <InlineText>[
+            InlineText(text: 'bold', marks: <InlineMark>{InlineMark.bold}),
+          ],
+        ),
+      ],
+    );
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: SizedBox(
+            height: 300,
+            child: RichDocumentView(document: document),
+          ),
+        ),
+      ),
+    );
+
+    final richText = tester.widget<RichText>(_richTextWithPlainText('bold'));
+    final rootSpan = richText.text as TextSpan;
+    final boldSpan = rootSpan.children!.first as TextSpan;
+    expect(boldSpan.style?.fontWeight, FontWeight.w700);
   });
 }
 

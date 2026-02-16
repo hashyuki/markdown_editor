@@ -1,7 +1,36 @@
 import '../model/rich_document.dart';
 import '../service/rich_document_transaction.dart';
 
-class MarkdownBlockSyntaxService {
+abstract interface class BlockSyntaxService {
+  bool isMarkerOnlyListBlock(BlockNode block);
+
+  bool isListLine(String line);
+
+  bool isBulletMarkerOnlyText(String text);
+
+  bool isOrderedMarkerOnlyText(String text);
+
+  RichDocument synchronizeBlockSyntaxFromText(
+    RichDocument document,
+    String blockId,
+  );
+
+  ({String text, int indent}) replaceBulletIndentText(String text, int indent);
+
+  ({String text, int indent}) replaceOrderedIndentText(String text, int indent);
+
+  String? bulletMarker(String text);
+
+  int? orderedMarker(String text);
+
+  int bulletPrefixLength(int indent);
+
+  int orderedPrefixLength(int indent, int marker);
+
+  String indentSpaces(int indent);
+}
+
+class MarkdownBlockSyntaxService implements BlockSyntaxService {
   const MarkdownBlockSyntaxService();
 
   static final RegExp headingPattern = RegExp(r'^(#{1,6}) ');
@@ -10,6 +39,7 @@ class MarkdownBlockSyntaxService {
   static final RegExp orderedPattern = RegExp(r'^((?:  )*)(\d+)\.\s');
   static final RegExp orderedOnlyPattern = RegExp(r'^((?:  )*)(\d+)\.\s*$');
 
+  @override
   bool isMarkerOnlyListBlock(BlockNode block) {
     if (block.type == BlockType.bulletListItem) {
       return bulletOnlyPattern.hasMatch(block.plainText);
@@ -20,18 +50,22 @@ class MarkdownBlockSyntaxService {
     return false;
   }
 
+  @override
   bool isListLine(String line) {
     return bulletPattern.hasMatch(line) || orderedPattern.hasMatch(line);
   }
 
+  @override
   bool isBulletMarkerOnlyText(String text) {
     return bulletOnlyPattern.hasMatch(text);
   }
 
+  @override
   bool isOrderedMarkerOnlyText(String text) {
     return orderedOnlyPattern.hasMatch(text);
   }
 
+  @override
   RichDocument synchronizeBlockSyntaxFromText(
     RichDocument document,
     String blockId,
@@ -99,6 +133,7 @@ class MarkdownBlockSyntaxService {
     return document;
   }
 
+  @override
   ({String text, int indent}) replaceBulletIndentText(String text, int indent) {
     final match = bulletPattern.firstMatch(text);
     if (match == null) {
@@ -110,6 +145,7 @@ class MarkdownBlockSyntaxService {
     return (text: replaced, indent: indent);
   }
 
+  @override
   ({String text, int indent}) replaceOrderedIndentText(
     String text,
     int indent,
@@ -124,11 +160,13 @@ class MarkdownBlockSyntaxService {
     return (text: replaced, indent: indent);
   }
 
+  @override
   String? bulletMarker(String text) {
     final match = bulletPattern.firstMatch(text);
     return match?.group(2);
   }
 
+  @override
   int? orderedMarker(String text) {
     final match = orderedPattern.firstMatch(text);
     if (match == null) {
@@ -137,14 +175,17 @@ class MarkdownBlockSyntaxService {
     return int.tryParse(match.group(2)!);
   }
 
+  @override
   int bulletPrefixLength(int indent) {
     return (indent * 2) + 2;
   }
 
+  @override
   int orderedPrefixLength(int indent, int marker) {
     return (indent * 2) + marker.toString().length + 2;
   }
 
+  @override
   String indentSpaces(int indent) {
     return List<String>.filled(indent, '  ').join();
   }
