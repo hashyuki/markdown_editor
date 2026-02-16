@@ -10,14 +10,16 @@ abstract interface class LineSyntaxParser {
 class MarkdownLineSyntaxParser implements LineSyntaxParser {
   const MarkdownLineSyntaxParser();
 
-  static final RegExp _unorderedListPattern = RegExp(r'^(\s*)([*+-])\s(.*)$');
-  static final RegExp _orderedListPattern = RegExp(r'^(\s*)(\d+)\. (.*)$');
+  static final RegExp _unorderedListPattern = RegExp(
+    r'^((?:  )*)([*+-])\s(.*)$',
+  );
+  static final RegExp _orderedListPattern = RegExp(r'^((?:  )*)(\d+)\. (.*)$');
 
   @override
   LineSyntax parse(String line) {
     final unorderedMatch = _unorderedListPattern.firstMatch(line);
     if (unorderedMatch != null) {
-      final indent = unorderedMatch.group(1)!.length;
+      final indent = unorderedMatch.group(1)!.length ~/ 2;
       final marker = unorderedMatch.group(2)!;
       return LineSyntax(
         headingLevel: EditorLine(line).headingLevel,
@@ -27,7 +29,7 @@ class MarkdownLineSyntaxParser implements LineSyntaxParser {
 
     final orderedMatch = _orderedListPattern.firstMatch(line);
     if (orderedMatch != null) {
-      final indent = orderedMatch.group(1)!.length;
+      final indent = orderedMatch.group(1)!.length ~/ 2;
       final number = int.parse(orderedMatch.group(2)!);
       return LineSyntax(
         headingLevel: EditorLine(line).headingLevel,

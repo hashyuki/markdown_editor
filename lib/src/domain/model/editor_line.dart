@@ -1,7 +1,7 @@
 class EditorLine {
   const EditorLine(this.value);
 
-  static final RegExp _headingPattern = RegExp(r'^(#{1,6})\s');
+  static final RegExp _headingPattern = RegExp(r'^\s{0,3}(#{1,6})\s');
 
   final String value;
 

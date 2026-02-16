@@ -52,10 +52,16 @@ void main() {
       final ordered = parser.parse('    1. child');
 
       expect(unordered.list?.type, ListType.unordered);
-      expect(unordered.list?.indent, 2);
+      expect(unordered.list?.indent, 1);
 
       expect(ordered.list?.type, ListType.ordered);
-      expect(ordered.list?.indent, 4);
+      expect(ordered.list?.indent, 2);
+    });
+
+    test('does not parse list markers with non-two-space indentation', () {
+      expect(parser.parse(' - child').list, isNull);
+      expect(parser.parse('   - child').list, isNull);
+      expect(parser.parse('\t- child').list, isNull);
     });
   });
 }

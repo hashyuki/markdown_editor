@@ -28,43 +28,70 @@ class EditorDemoPage extends StatefulWidget {
 }
 
 class _EditorDemoPageState extends State<EditorDemoPage> {
-  late final EditorViewModel _viewModel;
-  late final TextEditingController _controller;
+  late RichDocument _document;
+  RichSelection? _selection;
 
   @override
   void initState() {
     super.initState();
-    final repository = InMemoryEditorRepository();
-    _viewModel = EditorViewModel(
-      loadUseCase: LoadEditorDocumentUseCase(repository),
-      updateUseCase: UpdateEditorDocumentUseCase(repository),
-    )..initialize();
-    _controller = TextEditingController(text: _viewModel.text)
-      ..addListener(_onEditorChanged);
-  }
-
-  void _onEditorChanged() {
-    _viewModel.onTextChanged(_controller.text);
-  }
-
-  @override
-  void dispose() {
-    _controller
-      ..removeListener(_onEditorChanged)
-      ..dispose();
-    _viewModel.dispose();
-    super.dispose();
+    const markdown =
+        '# Heading 1\n'
+        '\n'
+        '## Heading 2\n'
+        '\n'
+        '### Heading 3\n'
+        '\n'
+        '#### Heading 4\n'
+        '\n'
+        '##### Heading 5\n'
+        '\n'
+        '###### Heading 6\n'
+        '\n'
+        'text text\n'
+        '- aaa\n'
+        '- bbb\n'
+        '  - ccc\n'
+        '  - ddd\n'
+        '- eee\n'
+        '1. aaa\n'
+        '1. bbb\n'
+        '  1. ccc\n'
+        '  1. ddd\n'
+        '1. eee';
+    _document = MarkdownToRichDocumentConverter().convert(markdown);
+    _selection = RichSelection.collapsed(
+      RichTextPosition(blockId: _document.blocks.first.id, offset: 0),
+    );
   }
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: const Text('Simple Text Editor')),
+      appBar: AppBar(title: const Text('TextField-free Editor Prototype')),
       body: Padding(
         padding: const EdgeInsets.all(16),
-        child: SimpleTextEditor(
-          controller: _controller,
-          hintText: 'Start writing markdown...',
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Expanded(
+              child: RichDocumentView(
+                document: _document,
+                enableKeyboardSelection: true,
+                enableKeyboardEditing: true,
+                selection: _selection,
+                onDocumentChanged: (document) {
+                  setState(() {
+                    _document = document;
+                  });
+                },
+                onSelectionChanged: (selection) {
+                  setState(() {
+                    _selection = selection;
+                  });
+                },
+              ),
+            ),
+          ],
         ),
       ),
     );
